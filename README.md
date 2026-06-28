@@ -4,9 +4,9 @@ Turnkey eBus MQTT broker bundle for new developers.
 
 Three paths to a running eBus broker on your network:
 
-1. **Docker** (any machine) — `docker compose up` brings a broker plus example device and controller containers. No mDNS; containers reach each other by service name. See [`docs/docker-quickstart.md`](docs/docker-quickstart.md).
+1. **Laptop** (macOS, real mDNS) — host-native Mosquitto plus a python-zeroconf advertiser, brought up with one command, no Docker and no root. Exercises real mDNS discovery on a single Mac, where Docker Desktop's LinuxKit VM cannot. See [`docs/laptop-quickstart.md`](docs/laptop-quickstart.md).
 2. **Raspberry Pi** (real LAN) — Ansible playbook against stock Raspberry Pi OS. Claims `ebus-broker-<mac4>.local`, advertises via mDNS, generates a TLS CA + server cert, exposes a per-device registration API. See [`docs/pi-quickstart.md`](docs/pi-quickstart.md).
-3. **Laptop** (macOS, real mDNS) — host-native Mosquitto plus a python-zeroconf advertiser, brought up with one command, no Docker and no root. Exercises real mDNS discovery on a single Mac, where Docker Desktop's LinuxKit VM cannot. See [`docs/laptop-quickstart.md`](docs/laptop-quickstart.md).
+3. **Docker** (any machine) — `docker compose up` brings a broker plus example device and controller containers. No mDNS; containers reach each other by service name. See [`docs/docker-quickstart.md`](docs/docker-quickstart.md).
 
 The Docker and Pi paths bundle the same components: Mosquitto, a small FastAPI register service, and reused [`tls-certificate-manager`](https://github.com/electrification-bus/tls-certificate-manager) + [`mdns-publisher`](https://github.com/electrification-bus/mdns-publisher) modules. Example device + controller containers are built from [`python-sdk/examples/`](https://github.com/electrification-bus/python-sdk/tree/main/examples) and pulled from `ghcr.io/electrification-bus/`.
 
