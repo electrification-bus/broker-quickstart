@@ -1,0 +1,34 @@
+{# Rendered into the mdns-publisher config file. Operator-supplied vars: hostname, profile, device_id.
+   TXT records follow framework.md §"MQTT Broker Advertisement" (the eBus spec is authoritative). #}
+{%- if profile != "open" %}
+services:
+  - name: "eBus broker ({{ hostname }})"
+    type: "_secure-mqtt._tcp"
+    port: 8883
+    hostname: "{{ hostname }}"
+    txt:
+      txtvers: "1"
+      protocol: "mqtt-v5"
+      broker: "{{ hostname }}"
+      device_id: "{{ device_id }}"
+
+  - name: "eBus broker WS ({{ hostname }})"
+    type: "_mqtt-ws._tcp"
+    port: 9001
+    hostname: "{{ hostname }}"
+
+  - name: "eBus broker WSS ({{ hostname }})"
+    type: "_mqtt-wss._tcp"
+    port: 9002
+    hostname: "{{ hostname }}"
+{%- else %}
+{# 'open' profile: plaintext only, advertise the unencrypted listener. #}
+services:
+  - name: "eBus broker [OPEN] ({{ hostname }})"
+    type: "_mqtt._tcp"
+    port: 1883
+    hostname: "{{ hostname }}"
+    txt:
+      txtvers: "1"
+      protocol: "mqtt-v5"
+{%- endif %}
