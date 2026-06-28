@@ -21,6 +21,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from .auth import ensure_acl
+from .bridge import Bridge, add_bridge_arguments, bridge_from_args
 from .certs import CertPaths, default_local_hostname, ensure_server_cert
 from .profiles import DEFAULT_PROFILE, PROFILES, listeners
 
@@ -61,6 +62,7 @@ def render_config(
     profile: str = DEFAULT_PROFILE,
     debug_port: int | None = None,
     acl_file: Path | None = None,
+    bridge: Bridge | None = None,
 ) -> Path:
     """Render mosquitto.conf for `profile` into the state dir and return its path."""
     listener_set = listeners(profile, debug_port)
@@ -83,6 +85,7 @@ def render_config(
         state_dir=state_dir,
         acl_file=acl_file,
         per_listener=per_listener,
+        bridge=bridge,
     )
     conf_path = state_dir / "mosquitto.conf"
     conf_path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,12 +103,15 @@ def prepare(
     hostname: str | None = None,
     profile: str = DEFAULT_PROFILE,
     debug_port: int | None = None,
+    bridge: Bridge | None = None,
 ) -> tuple[Path, str]:
     """Ensure certs/ACL + config exist for `profile`. Returns (config_path, hostname).
 
     Idempotent: reuses existing material unless it no longer matches (e.g. the
     server cert SAN no longer covers `hostname`). Profiles with a TLS listener
     mint a server cert; profiles with an ACL listener ensure the ACL file exists.
+    The bridge (if any) uses externally supplied trust material, so it mints
+    nothing.
     """
     hostname = hostname or default_local_hostname()
     state_dir = state_dir.resolve()
@@ -118,7 +124,7 @@ def prepare(
     if any(listener_.acl for listener_ in listener_set):
         acl_file = ensure_acl(state_dir / "acl")
 
-    conf_path = render_config(state_dir, paths, profile, debug_port, acl_file)
+    conf_path = render_config(state_dir, paths, profile, debug_port, acl_file, bridge)
     return conf_path, hostname
 
 
@@ -141,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=PROFILES,
         default=DEFAULT_PROFILE,
         help=f"Security profile (default: {DEFAULT_PROFILE}). "
-        "open=plaintext/anonymous; discovery=mTLS; strict=mTLS+password+ACL.",
+        "open=plaintext/anonymous; discovery=mTLS + plaintext anon-read; strict=mTLS only.",
     )
     parser.add_argument(
         "--debug-port",
@@ -151,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Add an unadvertised localhost-only plaintext listener on PORT "
         "(a local tap that needs no client cert).",
     )
+    add_bridge_arguments(parser)
     parser.add_argument(
         "--mosquitto",
         default=None,
@@ -164,12 +171,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     _validate_debug_port(args.profile, args.debug_port, parser)
-    conf_path, hostname = prepare(args.state_dir, args.hostname, args.profile, args.debug_port)
+    bridge = bridge_from_args(args, on_error=parser.error)
+    conf_path, hostname = prepare(args.state_dir, args.hostname, args.profile, args.debug_port, bridge)
     print(f"eBus laptop broker prepared for {hostname} [profile: {args.profile}]", file=sys.stderr)
     print(f"  config: {conf_path}", file=sys.stderr)
     print(f"  listener: {listener_summary(args.profile, hostname)}", file=sys.stderr)
     if args.debug_port:
         print(f"  debug:    127.0.0.1:{args.debug_port} (plaintext, unadvertised)", file=sys.stderr)
+    if bridge:
+        print(f"  bridge:   {bridge.topic} {bridge.direction} -> {bridge.host}:{bridge.port}", file=sys.stderr)
 
     if args.no_run:
         return 0
