@@ -24,6 +24,15 @@ from .auth import ensure_acl
 from .bridge import Bridge, add_bridge_arguments, bridge_from_args
 from .certs import CertPaths, default_local_hostname, ensure_server_cert
 from .profiles import DEFAULT_PROFILE, PROFILES, listeners
+from .span import add_span_bridge_arguments, span_bridge_from_args
+
+
+def resolve_bridge(args: argparse.Namespace, on_error=None) -> Bridge | None:
+    """Resolve the bridge from args: --span-bridge or --bridge (mutually exclusive)."""
+    if getattr(args, "span_bridge", None) is not None and args.bridge is not None:
+        if on_error is not None:
+            on_error("use either --bridge or --span-bridge, not both")
+    return span_bridge_from_args(args, on_error=on_error) or bridge_from_args(args, on_error=on_error)
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent
 
@@ -90,6 +99,9 @@ def render_config(
     conf_path = state_dir / "mosquitto.conf"
     conf_path.parent.mkdir(parents=True, exist_ok=True)
     conf_path.write_text(rendered)
+    # The rendered config embeds the bridge's remote_password; keep it owner-only.
+    if bridge is not None and bridge.password:
+        conf_path.chmod(0o600)
     return conf_path
 
 
@@ -158,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         "(a local tap that needs no client cert).",
     )
     add_bridge_arguments(parser)
+    add_span_bridge_arguments(parser)
     parser.add_argument(
         "--mosquitto",
         default=None,
@@ -171,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     _validate_debug_port(args.profile, args.debug_port, parser)
-    bridge = bridge_from_args(args, on_error=parser.error)
+    bridge = resolve_bridge(args, on_error=parser.error)
     conf_path, hostname = prepare(args.state_dir, args.hostname, args.profile, args.debug_port, bridge)
     print(f"eBus laptop broker prepared for {hostname} [profile: {args.profile}]", file=sys.stderr)
     print(f"  config: {conf_path}", file=sys.stderr)

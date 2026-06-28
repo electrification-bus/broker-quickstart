@@ -147,6 +147,26 @@ Options: `--bridge-topic` (default `ebus/#`), `--bridge-direction` (`in` = remot
 
 How the remote `HOST:PORT` becomes reachable (direct WAN TLS, a VPN, or an SSH tunnel mapping `remote:8883` to `localhost`) is a deployment concern, not part of the broker; the bridge only needs a reachable address.
 
+### Bridge to a SPAN panel
+
+`--span-bridge` is a turnkey specialization for SPAN panels: it reads your `~/.span-auth.json` (the public SPAN API credential file), uses the per-panel CA from `~/.span-ca-certs/` (downloading it from the panel's `http://<host>/api/v2/certificate/ca` if missing), and builds the bridge with the panel's username/password and MQTT 3.1.1, pulling the panel's `ebus/#` onto your laptop:
+
+```bash
+python -m laptop.run --span-bridge                # default panel from ~/.span-auth.json
+python -m laptop.run --span-bridge <serial>       # a specific panel
+```
+
+It connects to `span-<serial>.local:8883` and is `direction in` only (it never publishes to the panel). If the panel is not on your LAN (e.g. you reach it through an SSH tunnel), point the bridge at the tunnel's local endpoint:
+
+```bash
+# in one shell: tunnel the panel's broker to a local port (your transport, your call)
+ssh -fN -L 18883:<panel-lan-ip>:8883 <jump-host>
+# then:
+python -m laptop.run --span-bridge <serial> --span-bridge-address localhost:18883
+```
+
+With an address override the cert hostname will not match, so the bridge uses `bridge_insecure` automatically (the CA chain is still validated). The rendered config embeds the panel password, so it is written `0600`. The SSH tunnel itself is out of scope here: it is a deployment transport, and only its local endpoint is passed in.
+
 ## Run the whole loop with a real publisher (the bench)
 
 Sections 1 and 3 bring up the broker and a synthetic check. To watch a real eBus publisher discover and reach the broker, `scripts/laptop-bench.sh` runs the full loop in three tmux windows: the broker (with the debug port), the [utility-meter reference publisher](https://github.com/electrification-bus/python-sdk/tree/main/examples) run with `--discover`, and a cert-free `mosquitto_sub` watching the published tree on the debug port.
