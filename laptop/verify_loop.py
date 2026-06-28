@@ -28,47 +28,9 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
-from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
 
 from .certs import CertPaths, mint_client_cert
-
-_SERVICE_TYPE = "_secure-mqtt._tcp.local."
-
-
-class _BrokerFinder(ServiceListener):
-    def __init__(self) -> None:
-        self.found = threading.Event()
-        self.hostname: str | None = None
-        self.port: int | None = None
-
-    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        info = zc.get_service_info(type_, name, timeout=3000)
-        if info is None:
-            return
-        # Prefer the spec `broker` TXT (the .local name) so TLS validates the
-        # advertised hostname; fall back to the SRV target.
-        broker = info.properties.get(b"broker")
-        self.hostname = broker.decode() if broker else info.server.rstrip(".")
-        self.port = info.port or 8883
-        self.found.set()
-
-    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        self.add_service(zc, type_, name)
-
-    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        pass
-
-
-def discover_broker(timeout: float = 8.0) -> tuple[str, int] | None:
-    zc = Zeroconf()
-    finder = _BrokerFinder()
-    ServiceBrowser(zc, _SERVICE_TYPE, finder)
-    try:
-        if finder.found.wait(timeout) and finder.hostname and finder.port:
-            return finder.hostname, finder.port
-        return None
-    finally:
-        zc.close()
+from .discover import discover_broker
 
 
 def publish_and_readback(
@@ -144,14 +106,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     print("Discovering broker via mDNS (_secure-mqtt._tcp)...", file=sys.stderr)
-    discovered = discover_broker(args.discover_timeout)
-    if discovered is None:
+    endpoint = discover_broker(args.discover_timeout)
+    if endpoint is None:
         print("✗ no broker discovered. Is `python -m laptop.run` running?", file=sys.stderr)
         return 1
-    hostname, port = discovered
-    print(f"✓ discovered broker: {hostname}:{port}", file=sys.stderr)
+    print(f"✓ discovered broker: {endpoint.host}:{endpoint.port}", file=sys.stderr)
 
-    ok = publish_and_readback(args.state_dir, hostname, port, args.client_id, args.timeout)
+    ok = publish_and_readback(args.state_dir, endpoint.host, endpoint.port, args.client_id, args.timeout)
     if not ok:
         print(
             "    loop failed: confirm the broker is up and the discovered hostname "

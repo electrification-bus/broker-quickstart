@@ -131,6 +131,31 @@ mosquitto_sub -h localhost -p 1884 -t 'ebus/5/#' -v
 
 It binds `127.0.0.1` only (unreachable from the LAN) and is never advertised over mDNS.
 
+## Run the whole loop with a real publisher (the bench)
+
+Sections 1 and 3 bring up the broker and a synthetic check. To watch a real eBus publisher discover and reach the broker, `scripts/laptop-bench.sh` runs the full loop in three tmux windows: the broker (with the debug port), the [utility-meter reference publisher](https://github.com/electrification-bus/python-sdk/tree/main/examples) run with `--discover`, and a cert-free `mosquitto_sub` watching the published tree on the debug port.
+
+You need a clone of [`python-sdk`](https://github.com/electrification-bus/python-sdk) and a Python that can import both this package and `ebus-sdk`. The simplest setup is one venv with both installed:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e '.[laptop]' -e '/path/to/python-sdk[mdns]'
+```
+
+Then run the bench, pointing it at your python-sdk clone:
+
+```bash
+SDK_REPO=/path/to/python-sdk ./scripts/laptop-bench.sh
+```
+
+The `meter` window logs `reason=brokerDiscovered,host=<name>.local,port=8883` followed by `reason=utilityMeterReady`, and the `sub` window shows the device's Homie tree (`ebus/5/<meter-id>/$state`, `$description`, `info/*`, `meter/*`, …) appearing. The meter found the broker over mDNS and connected over mTLS, with no hardcoded host. Stop everything with:
+
+```bash
+./scripts/laptop-bench.sh stop
+```
+
+Useful knobs (env vars): `PROFILE` (`discovery` or `strict`), `METER_ID`, `METER_CFG`, `DEBUG_PORT`. See the header of `scripts/laptop-bench.sh`.
+
 ## What got created
 
 | Path | What it is |
@@ -149,6 +174,7 @@ All of `state/` is gitignored; the keys never leave your machine.
 | `python -m laptop.run [--profile P] [--debug-port N]` | broker + advertiser together (the one-command runner) |
 | `python -m laptop.broker` | broker only (mint certs, render config, run Mosquitto) |
 | `python -m laptop.advertiser` | advertiser only |
+| `python -m laptop.discover [--json]` | discover a broker via mDNS (host + port); the consumer-side mirror of the advertiser |
 | `python -m laptop.certs --client <id>` | mint the CA / server / a client cert |
 | `python -m laptop.auth add-user <name>` | add a broker user (strict profile) |
 | `python -m laptop.verify_handshake` | mTLS handshake self-test (connect by `<name>.local`) |
