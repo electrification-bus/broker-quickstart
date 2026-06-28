@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ebus-broker-register"
+version = "0.0.1"
+description = "Per-device registration + CA distribution service for the eBus broker quickstart"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Electrification Bus contributors" }]
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "jinja2>=3.1",
+    "tomli>=2.0 ; python_version < '3.11'",
+    "cryptography>=42.0",
+    "paho-mqtt>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+ebus-broker-register = "register.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["register", "mdns", "laptop"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["register/tests"]
+asyncio_mode = "auto"

@@ -1,0 +1,37 @@
+# Rendered by laptop/broker.py for the Mac laptop deployment (BQ-zu8).
+# Host-native, user-writable paths, no root. Do not hand-edit the rendered copy;
+# change this template and re-run the broker.
+
+# ---------------------------------------------------------------------------
+# mTLS listener on 8883 (the eBus _secure-mqtt._tcp advertisement points here).
+# Clients MUST present a cert signed by the dev CA; the cert CN becomes the MQTT
+# username (matches the 'discovery'/'strict' profiles' per-device auth intent).
+# A single listener, so per-listener settings are unnecessary.
+# ---------------------------------------------------------------------------
+listener {{ mqtts_port }}
+protocol mqtt
+
+cafile {{ ca_cert }}
+certfile {{ server_cert }}
+keyfile {{ server_key }}
+
+tls_version tlsv1.2
+require_certificate true
+use_identity_as_username true
+
+# The client certificate IS the credential; there is no password backend on the
+# laptop MVP. Identity comes from the cert, so connections are not anonymous.
+allow_anonymous true
+
+# ---------------------------------------------------------------------------
+# Runtime / persistence (all under the user-writable state dir)
+# ---------------------------------------------------------------------------
+persistence true
+persistence_location {{ state_dir }}/
+pid_file {{ state_dir }}/mosquitto.pid
+
+log_dest stdout
+log_type error
+log_type warning
+log_type notice
+log_type information

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Generated state (NEVER commit broker secrets)
+state/
+*.key
+*.crt
+*.pem
+!deps/**/*.pem
+mosquitto/passwd
+mosquitto/acl
+
+# Ansible
+pi/ansible/*.retry
+pi/ansible/inventory
+!pi/ansible/inventory.example
+
+# Local overrides
+.env
+.env.local
+docker-compose.override.yml
