@@ -1,0 +1,30 @@
+{# Rendered into /etc/broker-quickstart/config.toml on the Pi, or /etc/broker-quickstart/config.toml inside the broker container. Read by the FastAPI register service, the motd renderer, and the Ansible reconfigure path. #}
+
+[broker]
+# 'open' | 'discovery' | 'strict' — see docs/security-profiles.md
+security_profile = "{{ security_profile | default('open') }}"
+hostname = "{{ hostname | default('ebus-broker-0000.local') }}"
+extra_sans = {{ extra_sans | default([]) | tojson }}
+
+[mqtt]
+mqtt_port  = 1883   # 'open' only
+mqtts_port = 8883   # 'discovery', 'strict'
+ws_port    = 9001   # 'discovery', 'strict'
+wss_port   = 9002   # 'discovery', 'strict'
+
+[mdns]
+service_type     = "_secure-mqtt._tcp"
+ws_service_type  = "_mqtt-ws._tcp"
+wss_service_type = "_mqtt-wss._tcp"
+
+[register]
+http_port = 8080
+# Bind address. Locked to localhost in 'open' profile by default (see register.app
+# startup check) so a misconfigured broker can't issue creds to the LAN.
+bind = "{{ register_bind | default('0.0.0.0') }}"
+
+[paths]
+ca_dir     = "{{ ca_dir     | default('/var/lib/broker-quickstart/ca') }}"
+server_dir = "{{ server_dir | default('/var/lib/broker-quickstart/server') }}"
+passwd     = "{{ passwd     | default('/var/lib/broker-quickstart/mosquitto/passwd') }}"
+acl        = "{{ acl        | default('/var/lib/broker-quickstart/mosquitto/acl') }}"
