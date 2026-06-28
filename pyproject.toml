@@ -35,6 +35,7 @@ dev = [
 
 [project.scripts]
 ebus-broker-register = "register.app:main"
+ebus-laptop = "laptop.run:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["register", "mdns", "laptop"]

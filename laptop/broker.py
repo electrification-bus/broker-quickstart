@@ -46,6 +46,11 @@ def render_config(state_dir: Path, paths: CertPaths) -> Path:
     return conf_path
 
 
+def resolve_mosquitto(explicit: str | None = None) -> str | None:
+    """Return the mosquitto binary path (explicit override, else search PATH)."""
+    return explicit or shutil.which("mosquitto")
+
+
 def prepare(state_dir: Path, hostname: str | None = None) -> tuple[Path, str]:
     """Ensure certs + config exist. Returns (config_path, hostname).
 
@@ -94,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_run:
         return 0
 
-    mosquitto = args.mosquitto or shutil.which("mosquitto")
+    mosquitto = resolve_mosquitto(args.mosquitto)
     if not mosquitto:
         print(
             "error: 'mosquitto' not found on PATH. Install it (Mac: 'brew install mosquitto') "
