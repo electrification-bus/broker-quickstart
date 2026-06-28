@@ -14,13 +14,13 @@ The Docker and Pi paths bundle the same components: Mosquitto, a small FastAPI r
 
 The broker ships with three profiles, switchable via a single config setting plus a restart:
 
-| Profile | Anon read | Anon write | TLS | Per-device auth | Use case |
-|---|---|---|---|---|---|
-| `open` *(default)* | all topics | all topics | off | optional | First-10-minutes hello-world |
-| `discovery` | `$state` + `$description` only | none | required | required for writes | Most installs; matches eBus intent |
-| `strict` | none | none | required | required everywhere | Production / multi-tenant LAN |
+| Profile | Anon read | Anon write | Device auth | Use case |
+|---|---|---|---|---|
+| `open` *(default)* | all topics | all topics | off (plaintext) | First-10-minutes hello-world |
+| `discovery` | `$state` + `$description` only | none | mTLS client cert | Most installs; matches eBus intent |
+| `strict` | none | none | mTLS client cert | Production / multi-tenant LAN |
 
-`open` is the default to make the first demo trivial. **Do not expose an `open`-mode broker to an untrusted network.** See [`docs/security-profiles.md`](docs/security-profiles.md) for the tightening procedure.
+Authentication is by client certificate (the cert CN is the MQTT username), authorized by a shared ACL. `discovery` runs an mTLS listener for devices plus a plaintext, read-only anonymous listener so a consumer can browse `$state` / `$description` without a cert; `strict` drops that anonymous window. `open` is the default to make the first demo trivial. **Do not expose an `open`-mode broker to an untrusted network.** See [`docs/security-profiles.md`](docs/security-profiles.md) for the full definition.
 
 ## Status
 

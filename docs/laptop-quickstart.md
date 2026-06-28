@@ -28,8 +28,10 @@ This single command:
 
 1. mints a dev CA and a Mosquitto server certificate whose SAN includes your host's `<name>.local` (the name Bonjour already publishes) plus its routable LAN IPs;
 2. renders `state/laptop/mosquitto.conf`;
-3. starts Mosquitto host-native on port 8883 requiring client certificates (`require_certificate` + `use_identity_as_username`, so the client cert's CN becomes the MQTT username);
-4. advertises `_secure-mqtt._tcp` over mDNS, riding your existing `<name>.local`.
+3. starts Mosquitto host-native in the default `discovery` profile: an mTLS listener on 8883 where devices authenticate by client certificate (the cert CN becomes the MQTT username), plus a plaintext, read-only anonymous listener on 1883 so a consumer can browse `$state` / `$description` without a cert;
+4. advertises both services over mDNS (`_secure-mqtt._tcp` and `_mqtt._tcp`), riding your existing `<name>.local`.
+
+(See [Security profiles](#security-profiles-and-extra-listeners) below to run `strict`, which drops the anonymous listener, or `open`.)
 
 Leave it running. A single Ctrl-C withdraws the mDNS record first and then stops the broker, so a client never resolves a broker that is already gone.
 
@@ -79,46 +81,44 @@ This is the end-to-end proof. It discovers the broker via mDNS (it does not hard
 
 ## 4. Connect a GUI client (MQTT Explorer)
 
-Because the broker requires client certificates, point a GUI client at the dev CA and give it a client cert. First mint one:
+For a quick **read-only** look in the `discovery` profile, point [MQTT Explorer](https://mqtt-explorer.com/) at the plaintext anonymous listener with no certificate at all:
+
+- **Host**: `<name>.local` (or `localhost`), **Port**: `1883`, **Encryption (TLS)**: off.
+
+You will see `$state` / `$description` for every device; publishing or reading property values is denied by the ACL. (The `--debug-port` from [below](#localhost-debug-tap) gives the same cert-free access on localhost with no ACL.)
+
+To **write**, or to read full device data, connect over mTLS with a client certificate. Mint one:
 
 ```bash
 python -m laptop.certs --client my-explorer
 ```
 
-Then configure [MQTT Explorer](https://mqtt-explorer.com/):
+Then configure MQTT Explorer:
 
 - **Host**: `<name>.local`, **Port**: `8883`, **Encryption (TLS)**: on, **Validate certificate**: on.
 - **CA certificate**: `state/laptop/ca/ca.crt`
 - **Client certificate**: `state/laptop/clients/my-explorer/client.crt`
 - **Client key**: `state/laptop/clients/my-explorer/client.key`
 
-Validation succeeds because the server certificate chains to the dev CA and its SAN contains `<name>.local`.
+Validation succeeds because the server certificate chains to the dev CA and its SAN contains `<name>.local`. That client (CN `my-explorer`) can read all lifecycle topics and read/write its own `ebus/5/my-explorer/#` subtree.
 
 ## Security profiles and extra listeners
 
-The runner defaults to the `discovery` profile (mTLS, shown above). A single `--profile` flag drives both the broker config and the mDNS advertisement so they never drift:
+The runner defaults to the `discovery` profile. A single `--profile` flag drives both the broker config and the mDNS advertisement so they never drift. Each profile resolves to a set of listeners (full definition: [`security-profiles.md`](security-profiles.md)):
 
-| Profile | Listener | Auth | Advertised as |
-|---------|----------|------|---------------|
-| `open` | plaintext 1883, all interfaces | none (anonymous) | `_mqtt._tcp` |
-| `discovery` *(default)* | mTLS 8883 | client cert; CN is the username | `_secure-mqtt._tcp` |
-| `strict` | mTLS 8883 | client cert **and** username/password, plus an ACL | `_secure-mqtt._tcp` |
-
-```bash
-python -m laptop.run --profile open       # plaintext hello-world; never expose to an untrusted network
-python -m laptop.run --profile discovery   # the default
-python -m laptop.run --profile strict      # cert + password + ACL (see below)
-```
-
-### Strict profile: add a user
-
-`strict` requires a username and password in addition to the client cert (the cert secures the channel; the password authenticates the user, so `use_identity_as_username` is deliberately off). Create a user before connecting:
+| Profile | Listeners | Advertised as |
+|---------|-----------|---------------|
+| `open` | plaintext 1883, anonymous read **and** write | `_mqtt._tcp` |
+| `discovery` *(default)* | mTLS 8883 (devices) **plus** a plaintext read-only anonymous listener | `_secure-mqtt._tcp` **and** `_mqtt._tcp` |
+| `strict` | mTLS 8883 only (no anonymous access) | `_secure-mqtt._tcp` |
 
 ```bash
-python -m laptop.auth add-user alice          # prompts for a password
+python -m laptop.run --profile open        # plaintext hello-world; never expose to an untrusted network
+python -m laptop.run --profile discovery   # the default: devices use mTLS, consumers can read lifecycle anonymously
+python -m laptop.run --profile strict      # mTLS only, no anonymous access
 ```
 
-This writes `state/laptop/passwd` (via `mosquitto_passwd`) and a default `state/laptop/acl` that scopes each user to their own `ebus/5/<user>/#` subtree and lets any authenticated user read lifecycle topics. A `strict` client must then present its cert and `-u alice -P <password>`.
+Authentication is by client certificate (the cert CN becomes the MQTT username); there is no password. Authorization is one shared ACL: anonymous clients can read `$state` / `$description`, and each cert-authenticated client owns its `ebus/5/<cn>/#` subtree. `discovery` is `strict` plus the advertised plaintext anonymous-read window, so a consumer can browse devices without a cert.
 
 ### Localhost debug tap
 
@@ -176,7 +176,6 @@ All of `state/` is gitignored; the keys never leave your machine.
 | `python -m laptop.advertiser` | advertiser only |
 | `python -m laptop.discover [--json]` | discover a broker via mDNS (host + port); the consumer-side mirror of the advertiser |
 | `python -m laptop.certs --client <id>` | mint the CA / server / a client cert |
-| `python -m laptop.auth add-user <name>` | add a broker user (strict profile) |
 | `python -m laptop.verify_handshake` | mTLS handshake self-test (connect by `<name>.local`) |
 | `python -m laptop.verify_advertiser` | mDNS self-discovery self-test |
 | `python -m laptop.verify_loop` | full discover then mTLS then publish loop |
@@ -190,4 +189,4 @@ All of `state/` is gitignored; the keys never leave your machine.
 
 ## How this maps to a real deployment
 
-The laptop broker is a faithful stand-in for a real eBus broker host: same mDNS service type (`_secure-mqtt._tcp`), same TXT records (`framework.md` §"MQTT Broker Advertisement"), and the same mTLS trust surface. A publisher's discovery and TLS code path is therefore identical against this laptop broker and against real hardware. The difference from the Raspberry Pi path is only in plumbing: python-zeroconf instead of Avahi (Bonjour owns mDNS on macOS), a one-command supervisor instead of systemd, and user-writable paths instead of root. See the [security profiles](security-profiles.md) for tightening the broker beyond this MVP's mTLS listener.
+The laptop broker is a faithful stand-in for a real eBus broker host: same mDNS service type (`_secure-mqtt._tcp`), same TXT records (`framework.md` §"MQTT Broker Advertisement"), and the same mTLS trust surface. A publisher's discovery and TLS code path is therefore identical against this laptop broker and against real hardware. The difference from the Raspberry Pi path is only in plumbing: python-zeroconf instead of Avahi (Bonjour owns mDNS on macOS), a one-command supervisor instead of systemd, and user-writable paths instead of root. See the [security profiles](security-profiles.md) for the `open` / `discovery` / `strict` definitions and how to tighten the broker.

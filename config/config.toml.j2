@@ -24,7 +24,11 @@ http_port = 8080
 bind = "{{ register_bind | default('0.0.0.0') }}"
 
 [paths]
+# The 'discovery'/'strict' profiles authenticate by client cert and authorize via
+# the ACL (docs/security-profiles.md). 'acl' is the shared ACL file. 'passwd' is
+# only for an optional username/password (registration) auth method, not the cert
+# profiles; leave it unset unless that method is enabled.
 ca_dir     = "{{ ca_dir     | default('/var/lib/broker-quickstart/ca') }}"
 server_dir = "{{ server_dir | default('/var/lib/broker-quickstart/server') }}"
-passwd     = "{{ passwd     | default('/var/lib/broker-quickstart/mosquitto/passwd') }}"
 acl        = "{{ acl        | default('/var/lib/broker-quickstart/mosquitto/acl') }}"
+passwd     = "{{ passwd     | default('/var/lib/broker-quickstart/mosquitto/passwd') }}"

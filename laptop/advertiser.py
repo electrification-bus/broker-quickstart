@@ -29,16 +29,13 @@ from collections.abc import Iterator
 from zeroconf import ServiceInfo, Zeroconf
 
 from mdns.constants import (
-    MQTT_PLAIN_PORT,
     MQTT_PROTOCOL_V5,
-    MQTTS_PORT,
-    PLAIN_MQTT_SERVICE_TYPE,
     SECURE_MQTT_SERVICE_TYPE,
     TXTVERS,
 )
 
 from .certs import default_local_hostname, local_ip_addresses
-from .profiles import DEFAULT_PROFILE, OPEN, PROFILES
+from .profiles import DEFAULT_PROFILE, PROFILES, advertised_listeners
 
 
 def default_device_id(hostname: str | None = None) -> str:
@@ -47,45 +44,36 @@ def default_device_id(hostname: str | None = None) -> str:
     return hostname[: -len(".local")] if hostname.endswith(".local") else hostname
 
 
-def _service_for_profile(profile: str) -> tuple[str, int, str]:
-    """Return (fully-qualified service type, port, instance-label tag) for a profile.
-
-    open advertises plaintext `_mqtt._tcp` on 1883; the TLS profiles advertise
-    `_secure-mqtt._tcp` on 8883.
-    """
-    if profile == OPEN:
-        return f"{PLAIN_MQTT_SERVICE_TYPE}.local.", MQTT_PLAIN_PORT, "[OPEN] "
-    return f"{SECURE_MQTT_SERVICE_TYPE}.local.", MQTTS_PORT, ""
-
-
 def build_service_info(
+    service_type: str,
+    port: int,
     hostname: str | None = None,
     device_id: str | None = None,
-    profile: str = DEFAULT_PROFILE,
-    port: int | None = None,
 ) -> ServiceInfo:
-    """Build the ServiceInfo for `profile` with framework.md-compliant TXT records.
+    """Build a ServiceInfo for one listener with framework.md-compliant TXT records.
 
     `_secure-mqtt._tcp` carries txtvers/protocol/broker/device_id; plain
     `_mqtt._tcp` carries only txtvers/protocol per the spec.
     """
     hostname = hostname or default_local_hostname()
     device_id = device_id or default_device_id(hostname)
-    service_type, default_port, tag = _service_for_profile(profile)
-    port = default_port if port is None else port
+    fq_type = f"{service_type}.local."
 
-    if profile == OPEN:
-        properties = {"txtvers": TXTVERS, "protocol": MQTT_PROTOCOL_V5}
-    else:
+    if service_type == SECURE_MQTT_SERVICE_TYPE:
         properties = {
             "txtvers": TXTVERS,
             "protocol": MQTT_PROTOCOL_V5,
             "broker": hostname,
             "device_id": device_id,
         }
+        label = f"eBus broker {device_id}"
+    else:  # plain _mqtt._tcp
+        properties = {"txtvers": TXTVERS, "protocol": MQTT_PROTOCOL_V5}
+        label = f"eBus broker {device_id} (plaintext)"
+
     return ServiceInfo(
-        type_=service_type,
-        name=f"eBus broker {tag}{device_id}.{service_type}",
+        type_=fq_type,
+        name=f"{label}.{fq_type}",
         addresses=[ip.packed for ip in local_ip_addresses()],
         port=port,
         properties=properties,
@@ -99,16 +87,26 @@ def advertise(
     hostname: str | None = None,
     device_id: str | None = None,
     profile: str = DEFAULT_PROFILE,
-    port: int | None = None,
-) -> Iterator[ServiceInfo]:
-    """Register the broker advertisement for the duration of the context."""
-    info = build_service_info(hostname, device_id, profile, port)
+) -> Iterator[list[ServiceInfo]]:
+    """Advertise every service the profile enables, for the duration of the context.
+
+    One mDNS record per advertised listener (e.g. discovery advertises both
+    `_secure-mqtt._tcp` and `_mqtt._tcp`).
+    """
+    hostname = hostname or default_local_hostname()
+    device_id = device_id or default_device_id(hostname)
+    infos = [
+        build_service_info(listener_.service_type, listener_.port, hostname, device_id)
+        for listener_ in advertised_listeners(profile)
+    ]
     zc = Zeroconf()
-    zc.register_service(info)
+    for info in infos:
+        zc.register_service(info)
     try:
-        yield info
+        yield infos
     finally:
-        zc.unregister_service(info)
+        for info in infos:
+            zc.unregister_service(info)
         zc.close()
 
 
@@ -128,23 +126,24 @@ def main(argv: list[str] | None = None) -> int:
         "--profile",
         choices=PROFILES,
         default=DEFAULT_PROFILE,
-        help=f"Which service to advertise (default: {DEFAULT_PROFILE}). "
-        "open advertises _mqtt._tcp:1883; the TLS profiles advertise _secure-mqtt._tcp:8883.",
+        help=f"Which services to advertise (default: {DEFAULT_PROFILE}). "
+        "open advertises _mqtt._tcp; discovery advertises _secure-mqtt._tcp AND "
+        "_mqtt._tcp; strict advertises _secure-mqtt._tcp.",
     )
-    parser.add_argument("--port", type=int, default=None, help="Override the advertised port.")
     args = parser.parse_args(argv)
 
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
 
-    with advertise(args.hostname, args.device_id, args.profile, args.port) as info:
-        txt = {k.decode(): v.decode() for k, v in info.properties.items() if v is not None}
-        print(f"Advertising {info.name}", file=sys.stderr)
-        print(f"  service: {info.type.rstrip('.')} on port {info.port}", file=sys.stderr)
-        print(f"  server:  {info.server.rstrip('.')}", file=sys.stderr)
-        print(f"  TXT:     {txt}", file=sys.stderr)
-        print("  Ctrl-C to stop (deregisters the record).", file=sys.stderr)
+    with advertise(args.hostname, args.device_id, args.profile) as infos:
+        for info in infos:
+            txt = {k.decode(): v.decode() for k, v in info.properties.items() if v is not None}
+            print(f"Advertising {info.name}", file=sys.stderr)
+            print(f"  service: {info.type.rstrip('.')} on port {info.port}", file=sys.stderr)
+            print(f"  TXT:     {txt}", file=sys.stderr)
+        print(f"  server:  {infos[0].server.rstrip('.')}" if infos else "  (nothing to advertise)", file=sys.stderr)
+        print("  Ctrl-C to stop (deregisters the records).", file=sys.stderr)
         stop.wait()
     print("Advertisement withdrawn.", file=sys.stderr)
     return 0

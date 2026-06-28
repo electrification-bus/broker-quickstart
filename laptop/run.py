@@ -25,7 +25,7 @@ import threading
 from pathlib import Path
 
 from .advertiser import advertise, default_device_id
-from .broker import listener_summary, main_port, prepare, resolve_mosquitto
+from .broker import listener_summary, prepare, profile_ports, resolve_mosquitto
 from .profiles import DEFAULT_PROFILE, PROFILES
 
 _TERM_TIMEOUT = 5.0  # seconds to wait for a graceful broker exit before SIGKILL
@@ -76,9 +76,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mosquitto", default=None, help="Path to the mosquitto binary.")
     args = parser.parse_args(argv)
 
-    if args.debug_port is not None and args.debug_port == main_port(args.profile):
+    if args.debug_port is not None and args.debug_port in profile_ports(args.profile):
         parser.error(
-            f"--debug-port {args.debug_port} collides with the {args.profile} listener; "
+            f"--debug-port {args.debug_port} collides with a {args.profile} listener; "
             "choose a different port."
         )
 
