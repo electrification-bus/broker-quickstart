@@ -24,10 +24,9 @@ import sys
 import threading
 from pathlib import Path
 
-from mdns.constants import MQTTS_PORT
-
 from .advertiser import advertise, default_device_id
-from .broker import prepare, resolve_mosquitto
+from .broker import listener_summary, main_port, prepare, resolve_mosquitto
+from .profiles import DEFAULT_PROFILE, PROFILES
 
 _TERM_TIMEOUT = 5.0  # seconds to wait for a graceful broker exit before SIGKILL
 
@@ -59,9 +58,29 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Stable device id for the TXT record (default: the host's .local label).",
     )
-    parser.add_argument("--port", type=int, default=MQTTS_PORT)
+    parser.add_argument(
+        "--profile",
+        choices=PROFILES,
+        default=DEFAULT_PROFILE,
+        help=f"Security profile (default: {DEFAULT_PROFILE}). "
+        "open=plaintext/anonymous; discovery=mTLS; strict=mTLS+password+ACL. "
+        "Drives both the broker config and the mDNS advertisement.",
+    )
+    parser.add_argument(
+        "--debug-port",
+        type=int,
+        default=None,
+        metavar="PORT",
+        help="Add an unadvertised localhost-only plaintext listener on PORT.",
+    )
     parser.add_argument("--mosquitto", default=None, help="Path to the mosquitto binary.")
     args = parser.parse_args(argv)
+
+    if args.debug_port is not None and args.debug_port == main_port(args.profile):
+        parser.error(
+            f"--debug-port {args.debug_port} collides with the {args.profile} listener; "
+            "choose a different port."
+        )
 
     mosquitto = resolve_mosquitto(args.mosquitto)
     if not mosquitto:
@@ -72,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    conf_path, hostname = prepare(args.state_dir, args.hostname)
+    conf_path, hostname = prepare(args.state_dir, args.hostname, args.profile, args.debug_port)
     device_id = args.device_id or default_device_id(hostname)
 
     stop = threading.Event()
@@ -82,12 +101,14 @@ def main(argv: list[str] | None = None) -> int:
     # Start the broker in its own session so a terminal Ctrl-C reaches only this
     # supervisor; we then drive an ordered teardown ourselves.
     proc = subprocess.Popen([mosquitto, "-c", str(conf_path)], start_new_session=True)
-    print(f"eBus laptop broker: mosquitto pid {proc.pid} on {hostname}:{args.port} (mTLS)", file=sys.stderr)
+    print(f"eBus laptop broker [{args.profile}]: mosquitto pid {proc.pid}", file=sys.stderr)
+    print(f"  {listener_summary(args.profile, hostname)}", file=sys.stderr)
+    if args.debug_port:
+        print(f"  debug tap: 127.0.0.1:{args.debug_port} (plaintext, unadvertised)", file=sys.stderr)
 
     exit_code = 0
     try:
-        with advertise(hostname, device_id, args.port):
-            print(f"eBus laptop advertiser: _secure-mqtt._tcp -> {hostname}:{args.port} (device_id={device_id})", file=sys.stderr)
+        with advertise(hostname, device_id, args.profile):
             print("Both up. Ctrl-C to stop (withdraws mDNS, then stops the broker).", file=sys.stderr)
             while not stop.is_set():
                 if proc.poll() is not None:

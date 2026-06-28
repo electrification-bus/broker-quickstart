@@ -1,28 +1,54 @@
-# Rendered by laptop/broker.py for the Mac laptop deployment (BQ-zu8).
+# Rendered by laptop/broker.py for the Mac laptop deployment (profile: {{ profile }}).
 # Host-native, user-writable paths, no root. Do not hand-edit the rendered copy;
 # change this template and re-run the broker.
-
+{% if per_listener %}
+# Two listeners with different auth, so settings are scoped per listener.
+per_listener_settings true
+{% endif %}
+{% if profile == 'open' %}
 # ---------------------------------------------------------------------------
-# mTLS listener on 8883 (the eBus _secure-mqtt._tcp advertisement points here).
-# Clients MUST present a cert signed by the dev CA; the cert CN becomes the MQTT
-# username (matches the 'discovery'/'strict' profiles' per-device auth intent).
-# A single listener, so per-listener settings are unnecessary.
+# OPEN profile: plaintext MQTT on ALL interfaces, anonymous read/write.
+# Advertised as _mqtt._tcp. DO NOT expose this to an untrusted network.
+# ---------------------------------------------------------------------------
+listener {{ plain_port }}
+protocol mqtt
+allow_anonymous true
+{% else %}
+# ---------------------------------------------------------------------------
+# {{ profile | upper }} profile: mTLS on {{ mqtts_port }}. Clients MUST present a
+# cert signed by the dev CA (TLS-layer authentication of the channel).
 # ---------------------------------------------------------------------------
 listener {{ mqtts_port }}
 protocol mqtt
-
 cafile {{ ca_cert }}
 certfile {{ server_cert }}
 keyfile {{ server_key }}
-
 tls_version tlsv1.2
 require_certificate true
+{% if profile == 'strict' %}
+# strict: two factors. The cert secures the channel; a username + password
+# (checked against password_file) plus an ACL authenticate and authorize the
+# user. NOTE: use_identity_as_username is deliberately NOT set, because that
+# makes Mosquitto treat the cert as the identity and skip the password check.
+allow_anonymous false
+password_file {{ passwd_file }}
+acl_file {{ acl_file }}
+{% else %}
+# discovery: the client cert is the credential; its CN becomes the username.
 use_identity_as_username true
-
-# The client certificate IS the credential; there is no password backend on the
-# laptop MVP. Identity comes from the cert, so connections are not anonymous.
 allow_anonymous true
-
+{% endif %}
+{% endif %}
+{% if debug_port %}
+# ---------------------------------------------------------------------------
+# Localhost-only plaintext debug tap on {{ debug_port }} (NOT advertised).
+# Reachable only from this machine; anonymous. For a local mosquitto_sub or GUI
+# client without juggling certs.
+# ---------------------------------------------------------------------------
+listener {{ debug_port }} 127.0.0.1
+protocol mqtt
+allow_anonymous true
+{% endif %}
 # ---------------------------------------------------------------------------
 # Runtime / persistence (all under the user-writable state dir)
 # ---------------------------------------------------------------------------

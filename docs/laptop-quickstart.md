@@ -94,6 +94,43 @@ Then configure [MQTT Explorer](https://mqtt-explorer.com/):
 
 Validation succeeds because the server certificate chains to the dev CA and its SAN contains `<name>.local`.
 
+## Security profiles and extra listeners
+
+The runner defaults to the `discovery` profile (mTLS, shown above). A single `--profile` flag drives both the broker config and the mDNS advertisement so they never drift:
+
+| Profile | Listener | Auth | Advertised as |
+|---------|----------|------|---------------|
+| `open` | plaintext 1883, all interfaces | none (anonymous) | `_mqtt._tcp` |
+| `discovery` *(default)* | mTLS 8883 | client cert; CN is the username | `_secure-mqtt._tcp` |
+| `strict` | mTLS 8883 | client cert **and** username/password, plus an ACL | `_secure-mqtt._tcp` |
+
+```bash
+python -m laptop.run --profile open       # plaintext hello-world; never expose to an untrusted network
+python -m laptop.run --profile discovery   # the default
+python -m laptop.run --profile strict      # cert + password + ACL (see below)
+```
+
+### Strict profile: add a user
+
+`strict` requires a username and password in addition to the client cert (the cert secures the channel; the password authenticates the user, so `use_identity_as_username` is deliberately off). Create a user before connecting:
+
+```bash
+python -m laptop.auth add-user alice          # prompts for a password
+```
+
+This writes `state/laptop/passwd` (via `mosquitto_passwd`) and a default `state/laptop/acl` that scopes each user to their own `ebus/5/<user>/#` subtree and lets any authenticated user read lifecycle topics. A `strict` client must then present its cert and `-u alice -P <password>`.
+
+### Localhost debug tap
+
+Add an unadvertised, loopback-only plaintext listener alongside any TLS profile, for a quick `mosquitto_sub` or GUI client without juggling certs:
+
+```bash
+python -m laptop.run --profile discovery --debug-port 1884
+mosquitto_sub -h localhost -p 1884 -t 'ebus/5/#' -v
+```
+
+It binds `127.0.0.1` only (unreachable from the LAN) and is never advertised over mDNS.
+
 ## What got created
 
 | Path | What it is |
@@ -109,10 +146,11 @@ All of `state/` is gitignored; the keys never leave your machine.
 
 | Command | Purpose |
 |---------|---------|
-| `python -m laptop.run` | broker + advertiser together (the one-command runner) |
+| `python -m laptop.run [--profile P] [--debug-port N]` | broker + advertiser together (the one-command runner) |
 | `python -m laptop.broker` | broker only (mint certs, render config, run Mosquitto) |
 | `python -m laptop.advertiser` | advertiser only |
 | `python -m laptop.certs --client <id>` | mint the CA / server / a client cert |
+| `python -m laptop.auth add-user <name>` | add a broker user (strict profile) |
 | `python -m laptop.verify_handshake` | mTLS handshake self-test (connect by `<name>.local`) |
 | `python -m laptop.verify_advertiser` | mDNS self-discovery self-test |
 | `python -m laptop.verify_loop` | full discover then mTLS then publish loop |
