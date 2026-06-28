@@ -4,7 +4,7 @@ Turnkey eBus MQTT broker bundle for new developers.
 
 Three paths to a running eBus broker on your network:
 
-1. **Laptop** (macOS, real mDNS) — host-native Mosquitto plus a python-zeroconf advertiser, brought up with one command, no Docker and no root. Exercises real mDNS discovery on a single Mac, where Docker Desktop's LinuxKit VM cannot. See [`docs/laptop-quickstart.md`](docs/laptop-quickstart.md).
+1. **Laptop** (macOS, real mDNS) — host-native Mosquitto plus a python-zeroconf advertiser, brought up with one command, no Docker and no root. Exercises real mDNS discovery on a single Mac, where Docker Desktop's LinuxKit VM cannot. A one-command bench (`scripts/laptop-bench.sh`) runs the whole loop: the broker plus a real eBus publisher that discovers it over mDNS and connects over mTLS. See [`docs/laptop-quickstart.md`](docs/laptop-quickstart.md).
 2. **Raspberry Pi** (real LAN) — Ansible playbook against stock Raspberry Pi OS. Claims `ebus-broker-<mac4>.local`, advertises via mDNS, generates a TLS CA + server cert, exposes a per-device registration API. See [`docs/pi-quickstart.md`](docs/pi-quickstart.md).
 3. **Docker** (any machine) — `docker compose up` brings a broker plus example device and controller containers. No mDNS; containers reach each other by service name. See [`docs/docker-quickstart.md`](docs/docker-quickstart.md).
 
