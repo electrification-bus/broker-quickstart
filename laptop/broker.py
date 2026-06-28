@@ -20,33 +20,39 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from mdns.constants import MQTT_PLAIN_PORT, MQTTS_PORT
-
-from .auth import ensure_strict_auth_files
+from .auth import ensure_acl
 from .certs import CertPaths, default_local_hostname, ensure_server_cert
-from .profiles import DEFAULT_PROFILE, OPEN, PROFILES, STRICT, is_tls
+from .profiles import DEFAULT_PROFILE, PROFILES, listeners
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent
 
 
-def main_port(profile: str) -> int:
-    """The advertised listener port for a profile (plaintext 1883 vs mTLS 8883)."""
-    return MQTT_PLAIN_PORT if profile == OPEN else MQTTS_PORT
+def profile_ports(profile: str) -> set[int]:
+    """The ports a profile's (non-debug) listeners bind."""
+    return {listener_.port for listener_ in listeners(profile)}
 
 
 def _validate_debug_port(profile: str, debug_port: int | None, parser: argparse.ArgumentParser) -> None:
-    if debug_port is not None and debug_port == main_port(profile):
+    if debug_port is not None and debug_port in profile_ports(profile):
         parser.error(
-            f"--debug-port {debug_port} collides with the {profile} listener on the same port; "
+            f"--debug-port {debug_port} collides with a {profile} listener on the same port; "
             "choose a different port."
         )
 
 
 def listener_summary(profile: str, hostname: str) -> str:
-    if profile == OPEN:
-        return f"0.0.0.0:{MQTT_PLAIN_PORT} (plaintext, anonymous) [advertised _mqtt._tcp]"
-    auth = "mTLS + password + ACL" if profile == STRICT else "mTLS, client cert required"
-    return f"{hostname}:{MQTTS_PORT} ({auth}) [advertised _secure-mqtt._tcp]"
+    parts = []
+    for listener_ in listeners(profile):
+        host = "0.0.0.0" if listener_.bind is None else listener_.bind
+        if not listener_.tls:
+            kind = "plaintext anon read-only" if listener_.acl else "plaintext anonymous"
+            svc = " [_mqtt._tcp]" if listener_.advertised else " [not advertised]"
+        else:
+            kind = "mTLS, client cert required"
+            host = hostname
+            svc = " [_secure-mqtt._tcp]"
+        parts.append(f"{host}:{listener_.port} ({kind}){svc}")
+    return "; ".join(parts)
 
 
 def render_config(
@@ -54,13 +60,15 @@ def render_config(
     paths: CertPaths,
     profile: str = DEFAULT_PROFILE,
     debug_port: int | None = None,
-    passwd_file: Path | None = None,
     acl_file: Path | None = None,
 ) -> Path:
     """Render mosquitto.conf for `profile` into the state dir and return its path."""
-    # per_listener_settings is only needed when two listeners want different auth,
-    # i.e. the strict listener (allow_anonymous false) plus an anonymous debug tap.
-    per_listener = profile == STRICT and debug_port is not None
+    listener_set = listeners(profile, debug_port)
+    # per_listener_settings is needed only when listeners disagree on a global
+    # security setting (ACL on the real listeners vs none on the debug tap).
+    per_listener = any(listener_.acl for listener_ in listener_set) and any(
+        not listener_.acl for listener_ in listener_set
+    )
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),
         undefined=StrictUndefined,
@@ -68,14 +76,11 @@ def render_config(
     )
     rendered = env.get_template("mosquitto.conf.j2").render(
         profile=profile,
-        plain_port=MQTT_PLAIN_PORT,
-        mqtts_port=MQTTS_PORT,
+        listeners=listener_set,
         ca_cert=paths.ca_cert,
         server_cert=paths.server_cert,
         server_key=paths.server_key,
         state_dir=state_dir,
-        debug_port=debug_port,
-        passwd_file=passwd_file,
         acl_file=acl_file,
         per_listener=per_listener,
     )
@@ -96,24 +101,24 @@ def prepare(
     profile: str = DEFAULT_PROFILE,
     debug_port: int | None = None,
 ) -> tuple[Path, str]:
-    """Ensure certs/auth + config exist for `profile`. Returns (config_path, hostname).
+    """Ensure certs/ACL + config exist for `profile`. Returns (config_path, hostname).
 
     Idempotent: reuses existing material unless it no longer matches (e.g. the
-    server cert SAN no longer covers `hostname`). The TLS profiles mint a server
-    cert; `strict` also ensures the password and ACL files exist; `open` needs
-    neither.
+    server cert SAN no longer covers `hostname`). Profiles with a TLS listener
+    mint a server cert; profiles with an ACL listener ensure the ACL file exists.
     """
     hostname = hostname or default_local_hostname()
     state_dir = state_dir.resolve()
     paths = CertPaths(root=state_dir)
 
-    passwd_file = acl_file = None
-    if is_tls(profile):
+    listener_set = listeners(profile, debug_port)
+    acl_file = None
+    if any(listener_.tls for listener_ in listener_set):
         ensure_server_cert(paths, hostname)
-    if profile == STRICT:
-        passwd_file, acl_file = ensure_strict_auth_files(state_dir)
+    if any(listener_.acl for listener_ in listener_set):
+        acl_file = ensure_acl(state_dir / "acl")
 
-    conf_path = render_config(state_dir, paths, profile, debug_port, passwd_file, acl_file)
+    conf_path = render_config(state_dir, paths, profile, debug_port, acl_file)
     return conf_path, hostname
 
 

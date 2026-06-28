@@ -1,54 +1,47 @@
 # Rendered by laptop/broker.py for the Mac laptop deployment (profile: {{ profile }}).
 # Host-native, user-writable paths, no root. Do not hand-edit the rendered copy;
-# change this template and re-run the broker.
+# change the template and re-run the broker. Profile semantics: docs/security-profiles.md.
 {% if per_listener %}
-# Two listeners with different auth, so settings are scoped per listener.
+# Listeners differ on access rules (ACL vs none), so settings are scoped per listener.
 per_listener_settings true
 {% endif %}
-{% if profile == 'open' %}
+{% for l in listeners %}
 # ---------------------------------------------------------------------------
-# OPEN profile: plaintext MQTT on ALL interfaces, anonymous read/write.
-# Advertised as _mqtt._tcp. DO NOT expose this to an untrusted network.
-# ---------------------------------------------------------------------------
-listener {{ plain_port }}
-protocol mqtt
-allow_anonymous true
+{% if not l.tls %}
+{% if l.bind %}
+# Plaintext debug tap on {{ l.port }} ({{ l.bind }} only, NOT advertised, no ACL).
+{% elif l.acl %}
+# Plaintext anonymous READ window on {{ l.port }} (advertised _mqtt._tcp).
+# Read-only by ACL: anonymous clients can read lifecycle topics, nothing else.
 {% else %}
+# OPEN plaintext listener on {{ l.port }}, anonymous read+write (all interfaces).
+# DO NOT expose this to an untrusted network.
+{% endif %}
+{% else %}
+# mTLS listener on {{ l.port }} (advertised _secure-mqtt._tcp). A client cert is
+# REQUIRED; the cert CN is the username. Devices own their ebus/5/<user>/# subtree.
+{% endif %}
 # ---------------------------------------------------------------------------
-# {{ profile | upper }} profile: mTLS on {{ mqtts_port }}. Clients MUST present a
-# cert signed by the dev CA (TLS-layer authentication of the channel).
-# ---------------------------------------------------------------------------
-listener {{ mqtts_port }}
+listener {{ l.port }}{% if l.bind %} {{ l.bind }}{% endif %}
+
 protocol mqtt
+{% if l.tls %}
 cafile {{ ca_cert }}
 certfile {{ server_cert }}
 keyfile {{ server_key }}
 tls_version tlsv1.2
+{% endif %}
+{% if l.require_certificate %}
 require_certificate true
-{% if profile == 'strict' %}
-# strict: two factors. The cert secures the channel; a username + password
-# (checked against password_file) plus an ACL authenticate and authorize the
-# user. NOTE: use_identity_as_username is deliberately NOT set, because that
-# makes Mosquitto treat the cert as the identity and skip the password check.
-allow_anonymous false
-password_file {{ passwd_file }}
-acl_file {{ acl_file }}
-{% else %}
-# discovery: the client cert is the credential; its CN becomes the username.
+{% endif %}
+{% if l.use_identity_as_username %}
 use_identity_as_username true
+{% endif %}
 allow_anonymous true
+{% if l.acl %}
+acl_file {{ acl_file }}
 {% endif %}
-{% endif %}
-{% if debug_port %}
-# ---------------------------------------------------------------------------
-# Localhost-only plaintext debug tap on {{ debug_port }} (NOT advertised).
-# Reachable only from this machine; anonymous. For a local mosquitto_sub or GUI
-# client without juggling certs.
-# ---------------------------------------------------------------------------
-listener {{ debug_port }} 127.0.0.1
-protocol mqtt
-allow_anonymous true
-{% endif %}
+{% endfor %}
 # ---------------------------------------------------------------------------
 # Runtime / persistence (all under the user-writable state dir)
 # ---------------------------------------------------------------------------
