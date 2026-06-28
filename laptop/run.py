@@ -25,9 +25,10 @@ import threading
 from pathlib import Path
 
 from .advertiser import advertise, default_device_id
-from .bridge import add_bridge_arguments, bridge_from_args
-from .broker import listener_summary, prepare, profile_ports, resolve_mosquitto
+from .bridge import add_bridge_arguments
+from .broker import listener_summary, prepare, profile_ports, resolve_bridge, resolve_mosquitto
 from .profiles import DEFAULT_PROFILE, PROFILES
+from .span import add_span_bridge_arguments
 
 _TERM_TIMEOUT = 5.0  # seconds to wait for a graceful broker exit before SIGKILL
 
@@ -75,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Add an unadvertised localhost-only plaintext listener on PORT.",
     )
     add_bridge_arguments(parser)
+    add_span_bridge_arguments(parser)
     parser.add_argument("--mosquitto", default=None, help="Path to the mosquitto binary.")
     args = parser.parse_args(argv)
 
@@ -83,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             f"--debug-port {args.debug_port} collides with a {args.profile} listener; "
             "choose a different port."
         )
-    bridge = bridge_from_args(args, on_error=parser.error)
+    bridge = resolve_bridge(args, on_error=parser.error)
 
     mosquitto = resolve_mosquitto(args.mosquitto)
     if not mosquitto:

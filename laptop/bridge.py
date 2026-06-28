@@ -28,6 +28,9 @@ DIRECTIONS = ("out", "in", "both")
 DEFAULT_QOS = 1
 
 
+PROTOCOL_VERSIONS = ("mqttv31", "mqttv311", "mqttv50")
+
+
 @dataclass(frozen=True)
 class Bridge:
     """A Mosquitto bridge connection to a remote broker."""
@@ -38,9 +41,32 @@ class Bridge:
     topic: str
     direction: str  # out (local -> remote) | in | both
     qos: int
-    cafile: Path | None  # CA validating the REMOTE broker (enables TLS to remote)
-    certfile: Path | None  # client cert the remote trusts (mTLS to remote)
-    keyfile: Path | None
+    cafile: Path | None = None  # CA validating the REMOTE broker (enables TLS to remote)
+    certfile: Path | None = None  # client cert the remote trusts (mTLS to remote)
+    keyfile: Path | None = None
+    username: str | None = None  # username/password auth to the remote (spec's primary method)
+    password: str | None = None
+    clientid: str | None = None  # remote_clientid (else Mosquitto derives one)
+    protocol_version: str | None = None  # mqttv31 | mqttv311 | mqttv50 (else Mosquitto default)
+    insecure: bool = False  # skip remote-hostname check (e.g. reached via IP/tunnel)
+
+
+def parse_address(address: str, on_error=None) -> tuple[str, int]:
+    """Parse 'host:port' into (host, port), failing via on_error/ValueError."""
+
+    def fail(msg: str):
+        if on_error is not None:
+            on_error(msg)
+        raise ValueError(msg)
+
+    host, sep, port_str = address.rpartition(":")
+    if not sep or not host:
+        fail(f"expected HOST:PORT, got {address!r}")
+    try:
+        return host, int(port_str)
+    except ValueError:
+        fail(f"port is not a number: {port_str!r}")
+        raise  # pragma: no cover (fail raises)
 
 
 def build_bridge(
@@ -53,6 +79,10 @@ def build_bridge(
     cafile: Path | None = None,
     certfile: Path | None = None,
     keyfile: Path | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    protocol_version: str | None = None,
+    insecure: bool = False,
     on_error=None,
 ) -> Bridge | None:
     """Parse `--bridge host:port` (+ options) into a Bridge, or None if unset.
@@ -68,14 +98,7 @@ def build_bridge(
             on_error(msg)
         raise ValueError(msg)
 
-    host, sep, port_str = address.rpartition(":")
-    if not sep or not host:
-        fail(f"--bridge expects HOST:PORT, got {address!r}")
-    try:
-        port = int(port_str)
-    except ValueError:
-        fail(f"--bridge port is not a number: {port_str!r}")
-        return None  # pragma: no cover (fail raises)
+    host, port = parse_address(address, on_error=lambda m: fail(f"--bridge {m}"))
 
     if direction not in DIRECTIONS:
         fail(f"--bridge-direction must be one of {DIRECTIONS}, got {direction!r}")
@@ -83,6 +106,10 @@ def build_bridge(
         fail("--bridge-certfile and --bridge-keyfile must be given together")
     if certfile is not None and cafile is None:
         fail("--bridge-certfile/--bridge-keyfile (mTLS to remote) require --bridge-cafile")
+    if (password is not None) != (username is not None):
+        fail("--bridge-username and a password (--bridge-password-file) must be given together")
+    if protocol_version is not None and protocol_version not in PROTOCOL_VERSIONS:
+        fail(f"--bridge-protocol-version must be one of {PROTOCOL_VERSIONS}")
 
     return Bridge(
         name=name,
@@ -94,6 +121,10 @@ def build_bridge(
         cafile=cafile,
         certfile=certfile,
         keyfile=keyfile,
+        username=username,
+        password=password,
+        protocol_version=protocol_version,
+        insecure=insecure,
     )
 
 
@@ -123,10 +154,31 @@ def add_bridge_arguments(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--bridge-cafile", type=Path, default=None, help="CA validating the remote broker (TLS).")
     group.add_argument("--bridge-certfile", type=Path, default=None, help="Client cert for mTLS to the remote.")
     group.add_argument("--bridge-keyfile", type=Path, default=None, help="Client key for mTLS to the remote.")
+    group.add_argument("--bridge-username", default=None, help="Username for username/password auth to the remote.")
+    group.add_argument(
+        "--bridge-password-file",
+        type=Path,
+        default=None,
+        help="File containing the remote password (avoids exposing it on the command line).",
+    )
+    group.add_argument(
+        "--bridge-protocol-version",
+        choices=PROTOCOL_VERSIONS,
+        default=None,
+        help="MQTT version for the bridge connection (else Mosquitto's default).",
+    )
+    group.add_argument(
+        "--bridge-insecure",
+        action="store_true",
+        help="Skip the remote-hostname check (e.g. when reaching the remote by IP or a tunnel).",
+    )
 
 
 def bridge_from_args(args: argparse.Namespace, on_error=None) -> Bridge | None:
     """Build a Bridge from parsed args (the names added by add_bridge_arguments)."""
+    password = None
+    if args.bridge_password_file is not None:
+        password = Path(args.bridge_password_file).read_text().strip()
     return build_bridge(
         args.bridge,
         topic=args.bridge_topic,
@@ -135,5 +187,9 @@ def bridge_from_args(args: argparse.Namespace, on_error=None) -> Bridge | None:
         cafile=args.bridge_cafile,
         certfile=args.bridge_certfile,
         keyfile=args.bridge_keyfile,
+        username=args.bridge_username,
+        password=password,
+        protocol_version=args.bridge_protocol_version,
+        insecure=args.bridge_insecure,
         on_error=on_error,
     )

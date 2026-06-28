@@ -64,13 +64,23 @@ log_type information
 connection {{ bridge.name }}
 address {{ bridge.host }}:{{ bridge.port }}
 topic {{ bridge.topic }} {{ bridge.direction }} {{ bridge.qos }}
+{% if bridge.clientid %}
+remote_clientid {{ bridge.clientid }}
+{% endif %}
+{% if bridge.username %}
+remote_username {{ bridge.username }}
+remote_password {{ bridge.password }}
+{% endif %}
+{% if bridge.protocol_version %}
+bridge_protocol_version {{ bridge.protocol_version }}
+{% endif %}
 {% if bridge.cafile %}
 bridge_cafile {{ bridge.cafile }}
 {% if bridge.certfile %}
 bridge_certfile {{ bridge.certfile }}
 bridge_keyfile {{ bridge.keyfile }}
 {% endif %}
-bridge_insecure false
+bridge_insecure {{ 'true' if bridge.insecure else 'false' }}
 {% endif %}
 cleansession true
 notifications false
