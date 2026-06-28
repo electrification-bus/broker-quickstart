@@ -7,7 +7,7 @@ name = "ebus-broker-register"
 version = "0.0.1"
 description = "Per-device registration + CA distribution service for the eBus broker quickstart"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Electrification Bus contributors" }]
 
@@ -42,7 +42,7 @@ packages = ["register", "mdns", "laptop"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["register/tests"]
