@@ -131,6 +131,22 @@ mosquitto_sub -h localhost -p 1884 -t 'ebus/5/#' -v
 
 It binds `127.0.0.1` only (unreachable from the LAN) and is never advertised over mDNS.
 
+## Bridge to a remote broker (advanced)
+
+`--bridge HOST:PORT` adds a Mosquitto bridge so the local broker shares its eBus topic space with a remote broker. Your laptop's broker initiates the connection (it dials out to the remote); the remote needs no configuration and just sees your laptop as another cert-authenticated client. The bridge sits behind the broker: the local listeners and the mDNS advertisement are unchanged.
+
+The default direction is `in` (pull the remote's topics down to the laptop), so the common case is one line: bring a remote eBus broker's devices onto your laptop without it ever publishing back to the remote. For example, to pull a SPAN panel's broker onto the laptop:
+
+```bash
+python -m laptop.run \
+  --bridge span-<serial>.local:8883 \
+  --bridge-cafile panel-ca.crt --bridge-certfile me.crt --bridge-keyfile me.key
+```
+
+Options: `--bridge-topic` (default `ebus/#`), `--bridge-direction` (`in` = remote to local *(default)*, `out` = local to remote, `both`), `--bridge-qos`, and for TLS to the remote `--bridge-cafile` (the remote's CA) plus `--bridge-certfile`/`--bridge-keyfile` (a client cert the remote trusts). The last two must be given together and require `--bridge-cafile`. Use `both` if you also want to publish from the laptop to the remote (e.g. send commands).
+
+How the remote `HOST:PORT` becomes reachable (direct WAN TLS, a VPN, or an SSH tunnel mapping `remote:8883` to `localhost`) is a deployment concern, not part of the broker; the bridge only needs a reachable address.
+
 ## Run the whole loop with a real publisher (the bench)
 
 Sections 1 and 3 bring up the broker and a synthetic check. To watch a real eBus publisher discover and reach the broker, `scripts/laptop-bench.sh` runs the full loop in three tmux windows: the broker (with the debug port), the [utility-meter reference publisher](https://github.com/electrification-bus/python-sdk/tree/main/examples) run with `--discover`, and a cert-free `mosquitto_sub` watching the published tree on the debug port.

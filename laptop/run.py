@@ -25,6 +25,7 @@ import threading
 from pathlib import Path
 
 from .advertiser import advertise, default_device_id
+from .bridge import add_bridge_arguments, bridge_from_args
 from .broker import listener_summary, prepare, profile_ports, resolve_mosquitto
 from .profiles import DEFAULT_PROFILE, PROFILES
 
@@ -63,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=PROFILES,
         default=DEFAULT_PROFILE,
         help=f"Security profile (default: {DEFAULT_PROFILE}). "
-        "open=plaintext/anonymous; discovery=mTLS; strict=mTLS+password+ACL. "
+        "open=plaintext/anonymous; discovery=mTLS + plaintext anon-read; strict=mTLS only. "
         "Drives both the broker config and the mDNS advertisement.",
     )
     parser.add_argument(
@@ -73,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PORT",
         help="Add an unadvertised localhost-only plaintext listener on PORT.",
     )
+    add_bridge_arguments(parser)
     parser.add_argument("--mosquitto", default=None, help="Path to the mosquitto binary.")
     args = parser.parse_args(argv)
 
@@ -81,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             f"--debug-port {args.debug_port} collides with a {args.profile} listener; "
             "choose a different port."
         )
+    bridge = bridge_from_args(args, on_error=parser.error)
 
     mosquitto = resolve_mosquitto(args.mosquitto)
     if not mosquitto:
@@ -91,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    conf_path, hostname = prepare(args.state_dir, args.hostname, args.profile, args.debug_port)
+    conf_path, hostname = prepare(args.state_dir, args.hostname, args.profile, args.debug_port, bridge)
     device_id = args.device_id or default_device_id(hostname)
 
     stop = threading.Event()

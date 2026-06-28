@@ -54,3 +54,27 @@ log_type error
 log_type warning
 log_type notice
 log_type information
+{% if bridge %}
+
+# ---------------------------------------------------------------------------
+# Bridge to a remote broker at {{ bridge.host }}:{{ bridge.port }} ({{ bridge.direction }}).
+# Sits behind the local broker; the local listeners and mDNS advertisement are
+# unchanged. Must come after the global settings above.
+# ---------------------------------------------------------------------------
+connection {{ bridge.name }}
+address {{ bridge.host }}:{{ bridge.port }}
+topic {{ bridge.topic }} {{ bridge.direction }} {{ bridge.qos }}
+{% if bridge.cafile %}
+bridge_cafile {{ bridge.cafile }}
+{% if bridge.certfile %}
+bridge_certfile {{ bridge.certfile }}
+bridge_keyfile {{ bridge.keyfile }}
+{% endif %}
+bridge_insecure false
+{% endif %}
+cleansession true
+notifications false
+try_private true
+start_type automatic
+restart_timeout 5
+{% endif %}
