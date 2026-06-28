@@ -24,7 +24,7 @@ The broker ships with three profiles, switchable via a single config setting plu
 
 ## Status
 
-Scaffolding in progress. See [`CHANGELOG.md`](CHANGELOG.md) and the v0.1 milestones in beads (`bd ready` from the shadow repo).
+Scaffolding in progress. See [`CHANGELOG.md`](CHANGELOG.md) for what's done and what's planned for v0.1.
 
 ## License
 
