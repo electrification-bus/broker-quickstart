@@ -30,6 +30,10 @@
 #   STATE      broker-quickstart state dir            (default: <repo>/state/laptop)
 #   DEBUG_PORT loopback plaintext debug port          (default: 1884)
 #   SESSION    tmux session name                      (default: ebus-laptop-bench)
+#   RUN_ARGS   extra args appended verbatim to the `laptop.run` broker command,
+#              e.g. to attach a bridge:
+#                RUN_ARGS='--span-bridge SERIAL --span-bridge-address 127.0.0.1:18883'
+#              (word-split in the shell; fine for this dev script)
 #
 set -euo pipefail
 
@@ -43,6 +47,7 @@ METER_ID="${METER_ID:-laptop-meter-001}"
 STATE="${STATE:-$REPO_ROOT/state/laptop}"
 DEBUG_PORT="${DEBUG_PORT:-1884}"
 SESSION="${SESSION:-ebus-laptop-bench}"
+RUN_ARGS="${RUN_ARGS:-}"   # extra args appended to the laptop.run broker command
 BROKER_CFG_JSON="${TMPDIR:-/tmp}/${SESSION}-broker-cfg.json"
 
 case "${1:-}" in
@@ -88,7 +93,7 @@ tmux kill-session -t "$SESSION" 2>/dev/null || true
 # broker — laptop runner (broker + advertiser + debug port)
 tmux new-session -d -s "$SESSION" -n broker -c "$REPO_ROOT"
 tmux send-keys -t "$SESSION:broker" \
-  "'$PY' -m laptop.run --state-dir '$STATE' --profile '$PROFILE' --debug-port $DEBUG_PORT" C-m
+  "'$PY' -m laptop.run --state-dir '$STATE' --profile '$PROFILE' --debug-port $DEBUG_PORT $RUN_ARGS" C-m
 
 # meter — the utility-meter, discovering the broker over mDNS
 tmux new-window -t "$SESSION" -n meter -c "$SDK_REPO"
