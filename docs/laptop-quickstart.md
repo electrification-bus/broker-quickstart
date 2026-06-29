@@ -190,7 +190,7 @@ The `meter` window logs `reason=brokerDiscovered,host=<name>.local,port=8883` fo
 ./scripts/laptop-bench.sh stop
 ```
 
-Useful knobs (env vars): `PROFILE` (`discovery` or `strict`), `METER_ID`, `METER_CFG`, `DEBUG_PORT`. See the header of `scripts/laptop-bench.sh`.
+Useful knobs (env vars): `PROFILE` (`discovery` or `strict`), `METER_ID`, `METER_CFG`, `DEBUG_PORT`, and `RUN_ARGS` (extra args appended to the `laptop.run` broker command, e.g. to attach a bridge: `RUN_ARGS='--span-bridge SERIAL --span-bridge-address 127.0.0.1:18883'`). See the header of `scripts/laptop-bench.sh`.
 
 ## What got created
 
