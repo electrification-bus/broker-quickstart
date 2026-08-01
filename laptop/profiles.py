@@ -25,7 +25,8 @@ rather than fight it:
 All TLS/ACL profiles share one ACL (docs/security-profiles.md): lifecycle topics
 are world-readable; each authenticated client (cert CN = username) owns its
 `ebus/5/<user>/#` subtree. The plaintext anonymous listener is read-only because
-anonymous clients have no username and so match only the `topic read` lines.
+anonymous clients have no username, so the only write grant (`pattern readwrite
+ebus/5/%u/#`) cannot match them.
 
 A `--debug-port` adds one more plaintext listener bound to 127.0.0.1 and NOT
 advertised: the same listener machinery, localhost-only, for a cert-free local
