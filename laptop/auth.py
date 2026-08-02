@@ -13,9 +13,10 @@ profile semantics in docs/security-profiles.md:
 - Each authenticated client (cert CN = username) owns its `ebus/5/<user>/#`
   subtree.
 
-`pattern` lines substitute the username (`%u`); `topic` lines apply to every
-client (a `pattern` without `%u`/`%c` makes Mosquitto warn, so the
-non-user-specific grants use `topic`).
+`pattern` lines apply to every client, substituting the username (`%u`) where
+present; unprefixed `topic` lines apply only to clients with no username, i.e.
+anonymous ones. The world-readable grants must therefore be `pattern`, even
+though a `pattern` without `%u`/`%c` makes Mosquitto log a startup warning.
 """
 
 from __future__ import annotations
@@ -26,9 +27,11 @@ DEFAULT_ACL = """\
 # eBus laptop broker ACL. Authentication is by client cert (CN = username).
 
 # Lifecycle topics are readable by every client (anonymous included, where the
-# profile allows anonymous connections):
-topic read ebus/5/+/$state
-topic read ebus/5/+/$description
+# profile allows anonymous connections). These must be `pattern`, not `topic`:
+# Mosquitto applies unprefixed `topic` lines to anonymous clients only, so as
+# `topic` they granted authenticated (mTLS) clients nothing at all.
+pattern read ebus/5/+/$state
+pattern read ebus/5/+/$description
 
 # Each authenticated client owns its own device subtree:
 pattern readwrite ebus/5/%u/#

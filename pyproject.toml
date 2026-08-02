@@ -45,5 +45,9 @@ line-length = 100
 target-version = "py310"
 
 [tool.pytest.ini_options]
-testpaths = ["register/tests"]
+testpaths = ["laptop/tests", "register/tests"]
 asyncio_mode = "auto"
+# `live` tests start a real Mosquitto broker (system binary, not a Python
+# dependency), so they are opt-in: `pytest -m live`.
+markers = ["live: requires a running Mosquitto broker binary"]
+addopts = "-m 'not live'"
