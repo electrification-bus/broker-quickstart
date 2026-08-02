@@ -7,7 +7,7 @@ The broker ships three profiles, selected by one setting (laptop: `--profile`; P
 | Profile | Listeners | Advertised (mDNS) | Use case |
 |---------|-----------|-------------------|----------|
 | `open` | plaintext MQTT, anonymous read **and** write | `_mqtt._tcp` | First-ten-minutes hello-world. **Never** expose to an untrusted network. |
-| `discovery` *(default)* | mTLS (client cert required) **plus** a plaintext, read-only anonymous listener | `_secure-mqtt._tcp` **and** `_mqtt._tcp` | Most installs; matches eBus intent. Devices authenticate by client cert; a consumer can browse `$state` / `$description` without one. |
+| `discovery` *(default)* | mTLS (client cert required) **plus** a plaintext, read-only anonymous listener | `_secure-mqtt._tcp` **and** `_mqtt._tcp` | Most installs; matches eBus intent. Devices authenticate by client cert; a consumer can read device data without one. |
 | `strict` | mTLS only (client cert required) | `_secure-mqtt._tcp` | Production / multi-tenant. No anonymous access at all. |
 
 `discovery` is `strict` plus an advertised plaintext anonymous-read window. Both use the same client-cert authentication and the same ACL; they differ only in whether that anonymous window is open.
@@ -16,23 +16,22 @@ The broker ships three profiles, selected by one setting (laptop: `--profile`; P
 
 The TLS profiles authenticate clients by **mutual TLS**: the client presents a certificate, the broker validates it against the dev CA, and the certificate's Common Name (CN) becomes the MQTT username (`use_identity_as_username`). There is no password backend. This is one of the authentication mechanisms the eBus spec allows (framework.md §24, §"mTLS Client Authentication"); a future deployment MAY instead issue username/password credentials via a registration endpoint, but these profiles pin down the *semantics* (what TLS / anonymous / ACL surface a client sees), not the mechanism.
 
-A note on the split listeners in `discovery`: Mosquitto's `use_identity_as_username` requires `require_certificate true`, so a single listener cannot be both cert-optional and cert-identified (it rejects every client). Rather than fight that, `discovery` runs two listeners: an mTLS one for identified devices and a separate plaintext one for anonymous read. The plaintext window carries only non-sensitive lifecycle data, consistent with the spec's `_mqtt._tcp` role.
+A note on the split listeners in `discovery`: Mosquitto's `use_identity_as_username` requires `require_certificate true`, so a single listener cannot be both cert-optional and cert-identified (it rejects every client). Rather than fight that, `discovery` runs two listeners: an mTLS one for identified devices and a separate plaintext one for anonymous read. That window is read-only but unrestricted: under the shared ACL it carries all readable device data, not just lifecycle. Use `strict` (no anonymous window) to close reads.
 
 ## Authorization: one shared ACL
 
 All TLS/ACL profiles share one ACL:
 
 ```
-# Lifecycle topics are readable by every client (anonymous included, where allowed):
-topic read ebus/5/+/$state
-topic read ebus/5/+/$description
+# There are no read restrictions: any client may read the whole tree.
+pattern read ebus/#
 
-# Each authenticated client owns its own device subtree:
+# Each authenticated client owns (may publish) its own device subtree:
 pattern readwrite ebus/5/%u/#
 ```
 
-- An **anonymous** client (no certificate, on the plaintext window) has no username, so it matches only the `topic read` lines: it can read lifecycle topics and nothing else (no writes, no property values).
-- An **authenticated** client (cert CN = username) additionally matches the `pattern` line, so it owns `ebus/5/<cn>/#` (read and write) and can read every device's lifecycle.
+- Read is unrestricted: every client, anonymous or authenticated, may read the whole tree. On `discovery` that includes the anonymous plaintext window, so a certless LAN client reads all device data, not just lifecycle. Use `strict` (no anonymous listener) if reads must be closed.
+- Write stays narrow: an **authenticated** client (cert CN = username) owns `ebus/5/<cn>/#`, its own subtree, through the `%u` grant. An **anonymous** client has no username, so it matches no write grant and cannot publish. Cross-device `/set` command authorization is intentionally out of scope for the static ACL; it belongs to a future dynamic-security tier fronted by the register service.
 
 `open` has no ACL: anonymous clients read and write everything.
 

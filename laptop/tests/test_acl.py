@@ -22,12 +22,13 @@ def _grants() -> list[str]:
 
 
 def test_no_bare_topic_grants():
-    """Every grant must be `pattern`.
+    """Every grant must be `pattern`, never a bare `topic`.
 
-    Both ACL-bearing listeners set `use_identity_as_username`, so every client has
-    a username. Mosquitto applies unprefixed `topic` lines only to clients that do
-    not, meaning a `topic` grant in this file can never reach an authenticated
-    client — never the intent for an ACL shared by both listeners.
+    Mosquitto applies an unprefixed `topic` line only to clients with no username.
+    The mTLS listener sets `use_identity_as_username`, so its clients always carry
+    a username (the cert CN) and match no bare `topic` line: such a grant reaches
+    only the anonymous plaintext window, never an authenticated client. That was
+    the original bug, so every grant in this shared ACL must be a `pattern`.
     """
     bare = [line for line in _grants() if line.split()[0] == "topic"]
     assert not bare, (
@@ -35,11 +36,10 @@ def test_no_bare_topic_grants():
     )
 
 
-def test_lifecycle_reads_are_granted_to_every_client():
-    """Lifecycle topics are world-readable, per docs/security-profiles.md."""
+def test_full_tree_read_is_granted_to_every_client():
+    """The whole tree is world-readable, per docs/security-profiles.md."""
     grants = _grants()
-    assert "pattern read ebus/5/+/$state" in grants
-    assert "pattern read ebus/5/+/$description" in grants
+    assert "pattern read ebus/#" in grants
 
 
 def test_every_write_grant_is_username_scoped():
