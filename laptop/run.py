@@ -100,7 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     device_id = args.device_id or default_device_id(hostname)
 
     stop = threading.Event()
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    # SIGHUP: `tmux kill-session` (laptop-bench.sh stop) hangs up the runner.
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, lambda *_: stop.set())
 
     # Start the broker in its own session so a terminal Ctrl-C reaches only this
