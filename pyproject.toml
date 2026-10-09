@@ -21,10 +21,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Host-native laptop deployment (Mac MVP): mDNS advertiser via python-zeroconf
-# (pulls in ifaddr, which laptop/certs.py also uses for SAN IP enumeration).
+# Host-native laptop deployment (Mac MVP): mDNS advertising and discovery via
+# ebus-service-discovery (python-zeroconf, which pulls in ifaddr, which
+# laptop/certs.py also uses for SAN IP enumeration).
 laptop = [
-    "zeroconf>=0.130",
+    "ebus-service-discovery[zeroconf]>=0.5.1",
 ]
 dev = [
     "pytest>=8.0",

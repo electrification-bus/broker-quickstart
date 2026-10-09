@@ -1,82 +1,40 @@
 """
-Reusable mDNS broker discovery (BQ-8sp): the consumer-side mirror of
-`laptop/advertiser.py`.
+Find an mTLS eBus broker over mDNS: the consumer-side mirror of
+`laptop/advertiser.py` (BQ-8sp, BQ-q2y).
 
-Browses `_secure-mqtt._tcp`, resolves the broker's advertised hostname (the
-`broker` TXT value, which is the `<host>.local` name the server cert SAN covers,
-falling back to the SRV target), its port, and its TXT records. This is the
-generic eBus discovery capability that downstream integrations consume instead of
-reimplementing mDNS (see BQ-w1k and the eBus framework's broker-discovery flow).
+A thin wrapper over ebus-service-discovery's `find_broker`, restricted to
+`_secure-mqtt._tcp` (a TLS config's credentials never go to a plain broker).
+The returned endpoint's `host` is the `broker` TXT value, the `<host>.local`
+name the server cert SAN covers, else the SRV target.
 
     python -m laptop.discover            # prints: <host> <port>
-    python -m laptop.discover --json     # {"host": ..., "port": ..., "txt": {...}}
+    python -m laptop.discover --json     # {"host": ..., "port": ..., "txt": {...}, "addresses": [...]}
 """
 
 from __future__ import annotations
 
+import math
 import sys
-import threading
-from dataclasses import dataclass, field
 
-from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+from ebus_service_discovery import ebus, mdns
+from ebus_service_discovery.ebus import BrokerEndpoint
 
-from mdns.constants import SECURE_MQTT_SERVICE_TYPE
-
-_SECURE_MQTT = f"{SECURE_MQTT_SERVICE_TYPE}.local."
+__all__ = ["BrokerEndpoint", "discover_broker"]
 
 
-@dataclass
-class BrokerEndpoint:
-    """A discovered broker: where to connect and what it advertised."""
-
-    host: str
-    port: int
-    txt: dict[str, str] = field(default_factory=dict)
-    addresses: list[str] = field(default_factory=list)
-
-
-class _BrokerFinder(ServiceListener):
-    def __init__(self) -> None:
-        self.found = threading.Event()
-        self.endpoint: BrokerEndpoint | None = None
-
-    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        info = zc.get_service_info(type_, name, timeout=3000)
-        if info is None:
-            return
-        txt = {
-            k.decode(): (v.decode() if v is not None else "")
-            for k, v in info.properties.items()
-        }
-        # Prefer the spec `broker` TXT (the .local name) so a TLS client validates
-        # the advertised hostname against the cert SAN; fall back to the SRV target.
-        host = txt.get("broker") or info.server.rstrip(".")
-        self.endpoint = BrokerEndpoint(
-            host=host,
-            port=info.port or 8883,
-            txt=txt,
-            addresses=info.parsed_addresses(),
-        )
-        self.found.set()
-
-    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        self.add_service(zc, type_, name)
-
-    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
-        pass
-
-
-def discover_broker(timeout: float = 8.0, service_type: str = _SECURE_MQTT) -> BrokerEndpoint | None:
-    """Browse mDNS and return the first broker found, or None on timeout."""
-    zc = Zeroconf()
-    finder = _BrokerFinder()
-    ServiceBrowser(zc, service_type, finder)
-    try:
-        if finder.found.wait(timeout):
-            return finder.endpoint
-        return None
-    finally:
-        zc.close()
+def discover_broker(timeout: float = 8.0) -> BrokerEndpoint | None:
+    """Browse until an mTLS broker is found, or None after about `timeout` seconds."""
+    interval = mdns.DEFAULT_BROWSE_TIMEOUT
+    return mdns.find_broker(
+        ebus.BrokerMode.DISCOVERY_ONLY,
+        base_cfg={"use_tls": True},
+        schedule=ebus.RetrySchedule(
+            fast_attempts=math.ceil(timeout / interval),
+            fast_interval=0.0,
+            max_attempts=math.ceil(timeout / interval),
+        ),
+        browse_timeout=interval,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -104,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
                     "host": endpoint.host,
                     "port": endpoint.port,
                     "txt": endpoint.txt,
-                    "addresses": endpoint.addresses,
+                    "addresses": [a.address for a in endpoint.addresses],
                 }
             )
         )

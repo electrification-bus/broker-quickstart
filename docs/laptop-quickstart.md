@@ -16,7 +16,7 @@ source .venv/bin/activate
 pip install -e '.[laptop]'
 ```
 
-The laptop extra pulls in `python-zeroconf` (for the mDNS advertiser); `cryptography`, `paho-mqtt`, and `jinja2` come from the base dependencies.
+The laptop extra pulls in [`ebus-service-discovery`](https://github.com/electrification-bus/python-service-discovery) (mDNS advertising and discovery, on python-zeroconf); `cryptography`, `paho-mqtt`, and `jinja2` come from the base dependencies.
 
 ## 1. Start the broker and advertiser (one command)
 
@@ -29,7 +29,7 @@ This single command:
 1. mints a dev CA and a Mosquitto server certificate whose SAN includes your host's `<name>.local` (the name Bonjour already publishes) plus its routable LAN IPs;
 2. renders `state/laptop/mosquitto.conf`;
 3. starts Mosquitto host-native in the default `discovery` profile: an mTLS listener on 8883 where devices authenticate by client certificate (the cert CN becomes the MQTT username), plus a plaintext, read-only anonymous listener on 1883 so a consumer can browse `$state` / `$description` without a cert;
-4. advertises both services over mDNS (`_secure-mqtt._tcp` and `_mqtt._tcp`), riding your existing `<name>.local`.
+4. advertises both services over mDNS (`_secure-mqtt._tcp` and `_mqtt._tcp`), plus the `_ebus._tcp` and `_device-info._tcp` records every eBus entity advertises (`roles=broker-host`), all under the instance name `eBus broker <your-host-label>`. The SRV target is your existing `<name>.local`, and no address records are published for it: macOS answers for that name with each interface's own address, so a LAN device and a container on the Mac each get an address they can reach.
 
 (See [Security profiles](#security-profiles-and-extra-listeners) below to run `strict`, which drops the anonymous listener, or `open`.)
 
@@ -54,7 +54,7 @@ The resolve (`-L`) output should show the broker reachable at `<name>.local.:888
 txtvers=1 protocol=mqtt-v5 broker=<name>.local device_id=<your-host-label>
 ```
 
-You can also confirm self-discovery programmatically (a zeroconf `ServiceBrowser` on the same host):
+You can also confirm self-discovery programmatically (browses `_secure-mqtt._tcp` and `_ebus._tcp` on the same host):
 
 ```bash
 python -m laptop.verify_advertiser
@@ -219,6 +219,7 @@ All of `state/` is gitignored; the keys never leave your machine.
 ## Troubleshooting
 
 - **`dns-sd -B` shows nothing.** The advertiser is not running, or the firewall blocked it. Confirm `laptop.run` is up and allow the firewall prompt (step 1).
+- **Advertised from a launchd-started session, nobody sees it.** A process started under a launchd agent (for example a tmux server started at login) gets no multicast on the network interfaces, so its advertisement and browses never leave the Mac. Run `laptop.run` from a terminal, or from a tmux server started from one (`tmux -L <name>`, as `scripts/laptop-bench.sh` does).
 - **TLS handshake fails after your machine name or network changed.** The server cert SAN is tied to your `<name>.local` and your IPs. The broker re-mints automatically when the `.local` name changes or a new IP appears; if needed, force it with `python -m laptop.certs --regenerate`.
 - **Client cert rejected after `--regenerate-ca`.** Regenerating the CA orphans every previously minted client cert. Re-mint your client certs (`python -m laptop.certs --client <id>`) and reconfigure the GUI client.
 - **Port 8883 already in use.** Another Mosquitto (or an earlier `laptop.run`) is still running. Stop it, or check with `lsof -nP -iTCP:8883 -sTCP:LISTEN`.
