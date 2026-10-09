@@ -31,7 +31,28 @@ pattern readwrite ebus/5/%u/#
 ```
 
 - Read is unrestricted: every client, anonymous or authenticated, may read the whole tree. On `discovery` that includes the anonymous plaintext window, so a certless LAN client reads all device data, not just lifecycle. Use `strict` (no anonymous listener) if reads must be closed.
-- Write stays narrow: an **authenticated** client (cert CN = username) owns `ebus/5/<cn>/#`, its own subtree, through the `%u` grant. An **anonymous** client has no username, so it matches no write grant and cannot publish. Cross-device `/set` command authorization is intentionally out of scope for the static ACL; it belongs to a future dynamic-security tier fronted by the register service.
+- Write stays narrow: an **authenticated** client (cert CN = username) owns `ebus/5/<cn>/#`, its own subtree, through the `%u` grant. An **anonymous** client has no username, so it matches no write grant and cannot publish. Grants beyond its own subtree come from the client registry (below).
+
+### Per-client grants: roles and child devices
+
+The client registry (`<state-dir>/clients.json`, managed with `python -m laptop.clients`) adds grants for named clients, rendered into the ACL as `user <cn>` sections after the shared patterns. Roles are framework.md's taxonomy (§"Authorization (Broker-Side ACLs)"):
+
+| Role | Writes beyond its own subtree |
+|---|---|
+| `observer`, `sensor` *(default)* | nothing |
+| `controller`, `automation` | `/set` on every device (`ebus/5/+/+/+/set`) and Homie broadcasts (`ebus/5/$broadcast/#`) |
+| `admin` | the whole tree |
+
+A controller's grant is `/set` topics only, so it cannot overwrite another device's `$state` or `$description`. A client may also list child device ids: children share their root's MQTT connection (framework.md §"Device Topology"), so the root writes each child's `ebus/5/<child>/#`. Anonymous clients have no username, so no `user` section reaches them.
+
+```bash
+python -m laptop.clients set my-controller --role controller
+python -m laptop.clients set my-panel --child my-panel-circuit-1 --child my-panel-circuit-2
+python -m laptop.clients list
+python -m laptop.clients remove my-controller
+```
+
+Each change rewrites the ACL and signals a running broker to reload (SIGHUP), so it applies without a restart.
 
 `open` has no ACL: anonymous clients read and write everything.
 

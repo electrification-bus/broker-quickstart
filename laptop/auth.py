@@ -24,6 +24,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .clients import Client, acl_sections
+
 DEFAULT_ACL = """\
 # eBus laptop broker ACL. Authentication is by client cert (CN = username).
 
@@ -34,15 +36,21 @@ DEFAULT_ACL = """\
 # covers the anonymous window; use `strict` (no anonymous listener) to close reads.
 pattern read ebus/#
 
-# Each authenticated client owns (may publish) its own device subtree. Cross-device
-# `/set` command authorization is intentionally out of scope for this static ACL;
-# it belongs to a future dynamic-security tier fronted by the register service.
+# Each authenticated client owns (may publish) its own device subtree. Grants
+# beyond it (a controller's `/set`, a root device's children) are per-client
+# `user` sections below, rendered from the client registry (laptop/clients.py).
 pattern readwrite ebus/5/%u/#
 """
 
 
-def ensure_acl(acl_path: Path) -> Path:
-    """Write the shipped ACL (0600) and return the path.
+def render_acl(registry: dict[str, Client] | None = None) -> str:
+    """The shared ACL plus the registry's per-client `user` sections."""
+    sections = acl_sections(registry or {})
+    return DEFAULT_ACL + ("\n" + sections if sections else "")
+
+
+def ensure_acl(acl_path: Path, registry: dict[str, Client] | None = None) -> Path:
+    """Write the ACL (0600) for `registry` and return the path.
 
     Rewritten on every bring-up, the same way laptop/broker.py re-renders
     mosquitto.conf: the ACL is a generated, tool-owned artifact with no
@@ -52,7 +60,7 @@ def ensure_acl(acl_path: Path) -> Path:
     """
     acl_path = Path(acl_path)
     acl_path.parent.mkdir(parents=True, exist_ok=True)
-    acl_path.write_text(DEFAULT_ACL)
+    acl_path.write_text(render_acl(registry))
     acl_path.chmod(0o600)
     # A new file takes its directory's group (wheel under /tmp on macOS);
     # Mosquitto 2.1 warns, and later versions refuse, unless it is our own group.

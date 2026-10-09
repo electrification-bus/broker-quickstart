@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - laptop: mDNS through [ebus-service-discovery](https://github.com/electrification-bus/python-service-discovery): the broker also advertises `_ebus._tcp` / `_device-info._tcp` with `roles=broker-host`, and publishes no address records, so each network resolves the broker to the Mac's address on that network. `laptop.discover` finds an mTLS broker. (#10, #13)
 - laptop: optional bridge to a remote broker, including username/password bridges. (#4, #5)
 - `scripts/laptop-bench.sh`: the broker, the python-sdk utility-meter discovering it over mDNS, and a debug-port subscriber, in tmux. (#2, #6, #11)
+- laptop: per-client grants from a client registry (`python -m laptop.clients`): framework.md roles, where `controller` / `automation` publish `/set` to any device and Homie broadcasts, and child device ids a root device may write. Applied by reloading the broker. (#9)
 - laptop: Mosquitto 2.1 configuration with the `mosquitto_acl_file` plugin attached per listener; 2.0 keeps `per_listener_settings`. (#14)
 
 ### Fixed
