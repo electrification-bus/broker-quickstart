@@ -6,7 +6,9 @@ Turnkey eBus MQTT broker for new developers: Mosquitto with mTLS, advertised ove
 
 Host-native Mosquitto plus an mDNS advertiser ([`ebus-service-discovery`](https://github.com/electrification-bus/python-service-discovery)), brought up with one command, no Docker and no root. A one-command bench (`scripts/laptop-bench.sh`) runs the whole loop: the broker plus a real eBus publisher that discovers it over mDNS and connects over mTLS. See [`docs/laptop-quickstart.md`](docs/laptop-quickstart.md).
 
-The same broker serves devices on your LAN and, with [`ebus-dev-fleet`](https://github.com/electrification-bus/ebus-dev-fleet), simulated eBus devices running as containers on the Mac.
+## Simulated devices on the Mac (ebus-dev-fleet)
+
+[`ebus-dev-fleet`](https://github.com/electrification-bus/ebus-dev-fleet) runs simulated eBus devices as containers on the same Mac (Apple `container`). They discover the laptop broker over mDNS and connect over mTLS, alongside real devices on your LAN: each side resolves the broker to the Mac's address on its own network.
 
 ## Planned
 
