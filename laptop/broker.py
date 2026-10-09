@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -72,13 +74,20 @@ def render_config(
     debug_port: int | None = None,
     acl_file: Path | None = None,
     bridge: Bridge | None = None,
+    acl_plugin: Path | None = None,
 ) -> Path:
-    """Render mosquitto.conf for `profile` into the state dir and return its path."""
+    """Render mosquitto.conf for `profile` into the state dir and return its path.
+
+    With `acl_plugin` (Mosquitto 2.1+), the ACL is the mosquitto_acl_file plugin,
+    attached only to the listeners that use it. Without it (2.0), `acl_file` is
+    scoped by `per_listener_settings`, which 2.1 deprecates.
+    """
     listener_set = listeners(profile, debug_port)
     # per_listener_settings is needed only when listeners disagree on a global
     # security setting (ACL on the real listeners vs none on the debug tap).
-    per_listener = any(listener_.acl for listener_ in listener_set) and any(
-        not listener_.acl for listener_ in listener_set
+    per_listener = acl_plugin is None and (
+        any(listener_.acl for listener_ in listener_set)
+        and any(not listener_.acl for listener_ in listener_set)
     )
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),
@@ -93,6 +102,7 @@ def render_config(
         server_key=paths.server_key,
         state_dir=state_dir,
         acl_file=acl_file,
+        acl_plugin=acl_plugin if acl_file is not None else None,
         per_listener=per_listener,
         bridge=bridge,
     )
@@ -110,12 +120,44 @@ def resolve_mosquitto(explicit: str | None = None) -> str | None:
     return explicit or shutil.which("mosquitto")
 
 
+def mosquitto_version(mosquitto: str) -> tuple[int, int] | None:
+    """(major, minor) from `mosquitto -h`, or None if it cannot be read."""
+    try:
+        out = subprocess.run(
+            [mosquitto, "-h"], capture_output=True, text=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r"mosquitto version (\d+)\.(\d+)", out.stdout + out.stderr)
+    return (int(match[1]), int(match[2])) if match else None
+
+
+def acl_plugin_for(mosquitto: str | None) -> Path | None:
+    """The mosquitto_acl_file plugin to use, or None for the 2.0 `acl_file` form.
+
+    The plugin and the per-listener `plugin_use` it relies on arrived in 2.1. It
+    is looked for next to the broker's own install prefix.
+    """
+    if not mosquitto or (mosquitto_version(mosquitto) or (0, 0)) < (2, 1):
+        return None
+    prefix = Path(os.path.realpath(mosquitto)).parent.parent
+    for candidate in (
+        prefix / "lib" / "mosquitto_acl_file.so",
+        prefix / "lib" / "mosquitto" / "mosquitto_acl_file.so",
+        *sorted(prefix.glob("lib/*/mosquitto/mosquitto_acl_file.so")),
+    ):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def prepare(
     state_dir: Path,
     hostname: str | None = None,
     profile: str = DEFAULT_PROFILE,
     debug_port: int | None = None,
     bridge: Bridge | None = None,
+    mosquitto: str | None = None,
 ) -> tuple[Path, str]:
     """Ensure certs/ACL + config exist for `profile`. Returns (config_path, hostname).
 
@@ -136,7 +178,8 @@ def prepare(
     if any(listener_.acl for listener_ in listener_set):
         acl_file = ensure_acl(state_dir / "acl")
 
-    conf_path = render_config(state_dir, paths, profile, debug_port, acl_file, bridge)
+    acl_plugin = acl_plugin_for(mosquitto or resolve_mosquitto())
+    conf_path = render_config(state_dir, paths, profile, debug_port, acl_file, bridge, acl_plugin)
     return conf_path, hostname
 
 
@@ -185,7 +228,9 @@ def main(argv: list[str] | None = None) -> int:
 
     _validate_debug_port(args.profile, args.debug_port, parser)
     bridge = resolve_bridge(args, on_error=parser.error)
-    conf_path, hostname = prepare(args.state_dir, args.hostname, args.profile, args.debug_port, bridge)
+    conf_path, hostname = prepare(
+        args.state_dir, args.hostname, args.profile, args.debug_port, bridge, args.mosquitto
+    )
     print(f"eBus laptop broker prepared for {hostname} [profile: {args.profile}]", file=sys.stderr)
     print(f"  config: {conf_path}", file=sys.stderr)
     print(f"  listener: {listener_summary(args.profile, hostname)}", file=sys.stderr)
