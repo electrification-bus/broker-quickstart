@@ -66,3 +66,13 @@ def ensure_acl(acl_path: Path, registry: dict[str, Client] | None = None) -> Pat
     # Mosquitto 2.1 warns, and later versions refuse, unless it is our own group.
     os.chown(acl_path, -1, os.getgid())
     return acl_path
+
+
+def ensure_no_users(path: Path) -> Path:
+    """Write an empty password file (0600): every client presenting a username fails it."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("")
+    path.chmod(0o600)
+    os.chown(path, -1, os.getgid())
+    return path

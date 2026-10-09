@@ -5,6 +5,12 @@
 # The shared ACL, attached (plugin_use) only to the listeners that enforce it.
 plugin_load acl {{ acl_plugin }}
 plugin_opt_acl_file {{ acl_file }}
+{% if no_users_file %}
+# An empty password file, attached to the anonymous read window: a client that
+# presents a username there is refused, so it cannot claim another client's grants.
+plugin_load nousers {{ password_plugin }}
+plugin_opt_password_file {{ no_users_file }}
+{% endif %}
 {% elif per_listener %}
 # Listeners differ on access rules (ACL vs none), so settings are scoped per listener.
 per_listener_settings true
@@ -46,10 +52,16 @@ listener_allow_anonymous true
 {% if l.acl %}
 plugin_use acl
 {% endif %}
+{% if l.acl and not l.tls and no_users_file %}
+plugin_use nousers
+{% endif %}
 {% else %}
 allow_anonymous true
 {% if l.acl %}
 acl_file {{ acl_file }}
+{% endif %}
+{% if l.acl and not l.tls and no_users_file %}
+password_file {{ no_users_file }}
 {% endif %}
 {% endif %}
 {% endfor %}
