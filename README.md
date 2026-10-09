@@ -1,32 +1,29 @@
 # broker-quickstart
 
-Turnkey eBus MQTT broker bundle for new developers.
+Turnkey eBus MQTT broker for new developers: Mosquitto with mTLS, advertised over mDNS the way a real eBus broker host advertises itself.
 
-Three paths to a running eBus broker on your network:
+## Laptop (macOS)
 
-1. **Laptop** (macOS, real mDNS) — host-native Mosquitto plus an mDNS advertiser ([`ebus-service-discovery`](https://github.com/electrification-bus/python-service-discovery)), brought up with one command, no Docker and no root. Exercises real mDNS discovery on a single Mac, where Docker Desktop's LinuxKit VM cannot. A one-command bench (`scripts/laptop-bench.sh`) runs the whole loop: the broker plus a real eBus publisher that discovers it over mDNS and connects over mTLS. See [`docs/laptop-quickstart.md`](docs/laptop-quickstart.md).
-2. **Raspberry Pi** (real LAN) — Ansible playbook against stock Raspberry Pi OS. Claims `ebus-broker-<mac4>.local`, advertises via mDNS, generates a TLS CA + server cert, exposes a per-device registration API. See [`docs/pi-quickstart.md`](docs/pi-quickstart.md).
-3. **Docker** (any machine) — `docker compose up` brings a broker plus example device and controller containers. No mDNS; containers reach each other by service name. See [`docs/docker-quickstart.md`](docs/docker-quickstart.md).
+Host-native Mosquitto plus an mDNS advertiser ([`ebus-service-discovery`](https://github.com/electrification-bus/python-service-discovery)), brought up with one command, no Docker and no root. A one-command bench (`scripts/laptop-bench.sh`) runs the whole loop: the broker plus a real eBus publisher that discovers it over mDNS and connects over mTLS. See [`docs/laptop-quickstart.md`](docs/laptop-quickstart.md).
 
-To run simulated eBus devices as containers on the same Mac, discovering the laptop broker over mDNS alongside real devices on the LAN, see [`ebus-dev-fleet`](https://github.com/electrification-bus/ebus-dev-fleet).
+The same broker serves devices on your LAN and, with [`ebus-dev-fleet`](https://github.com/electrification-bus/ebus-dev-fleet), simulated eBus devices running as containers on the Mac.
 
-The Docker and Pi paths bundle the same components: Mosquitto, a small FastAPI register service, and reused [`tls-certificate-manager`](https://github.com/electrification-bus/tls-certificate-manager) + [`mdns-publisher`](https://github.com/electrification-bus/mdns-publisher) modules. Example device + controller containers are built from [`python-sdk/examples/`](https://github.com/electrification-bus/python-sdk/tree/main/examples) and pulled from `ghcr.io/electrification-bus/`.
+## Planned
+
+- **Raspberry Pi**: an Ansible playbook for stock Raspberry Pi OS that claims `ebus-broker-<mac4>.local`, advertises over mDNS, and mints the TLS CA and server certificate.
+- **Docker**: a broker container with example device and controller containers built from [`python-sdk/examples/`](https://github.com/electrification-bus/python-sdk/tree/main/examples).
 
 ## Security profiles
 
-The broker ships with three profiles, switchable via a single config setting plus a restart:
+The broker ships with three profiles, selected with `--profile`:
 
 | Profile | Anon read | Anon write | Device auth | Use case |
 |---|---|---|---|---|
-| `open` *(default)* | all topics | all topics | off (plaintext) | First-10-minutes hello-world |
-| `discovery` | `$state` + `$description` only | none | mTLS client cert | Most installs; matches eBus intent |
+| `open` | all topics | all topics | off (plaintext) | First-10-minutes hello-world |
+| `discovery` *(default)* | all topics | none | mTLS client cert | Most installs; matches eBus intent |
 | `strict` | none | none | mTLS client cert | Production / multi-tenant LAN |
 
-Authentication is by client certificate (the cert CN is the MQTT username), authorized by a shared ACL. `discovery` runs an mTLS listener for devices plus a plaintext, read-only anonymous listener so a consumer can browse `$state` / `$description` without a cert; `strict` drops that anonymous window. `open` is the default to make the first demo trivial. **Do not expose an `open`-mode broker to an untrusted network.** See [`docs/security-profiles.md`](docs/security-profiles.md) for the full definition.
-
-## Status
-
-Scaffolding in progress. See [`CHANGELOG.md`](CHANGELOG.md) for what's done and what's planned for v0.1.
+Authentication is by client certificate (the cert CN is the MQTT username), authorized by a shared ACL: every client reads the whole tree, and each device writes only its own `ebus/5/<cn>/#` subtree. `discovery` runs an mTLS listener for devices plus a plaintext, read-only anonymous listener, so a consumer can read device data without a cert; `strict` drops that anonymous window. **Do not expose an `open`-mode broker to an untrusted network.** See [`docs/security-profiles.md`](docs/security-profiles.md) for the full definition.
 
 ## License
 
