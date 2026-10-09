@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- laptop: the `discovery` profile's plaintext anonymous window accepted any username a client claimed, with no password check, so a certless LAN client could write the subtree of the device it named itself after, or send `/set` as a registered controller. That listener now refuses clients that present a username (an empty password file: the `mosquitto_password_file` plugin on 2.1, `password_file` on 2.0); anonymous clients still connect and read.
 - laptop: the shared broker ACL rendered its world-readable lifecycle grants as `topic` lines, which Mosquitto applies only to clients with no username, so authenticated (mTLS) clients matched neither and received zero messages. The grants are now `pattern`. The ACL is also rewritten on every bring-up, so an on-disk copy from before this fix is refreshed rather than kept. (#7, #8)
 
 ### Changed

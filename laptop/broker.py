@@ -22,7 +22,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from .auth import ensure_acl
+from .auth import ensure_acl, ensure_no_users
 from .bridge import Bridge, add_bridge_arguments, bridge_from_args
 from .certs import CertPaths, default_local_hostname, ensure_server_cert
 from .clients import load_registry
@@ -76,6 +76,7 @@ def render_config(
     acl_file: Path | None = None,
     bridge: Bridge | None = None,
     acl_plugin: Path | None = None,
+    no_users_file: Path | None = None,
 ) -> Path:
     """Render mosquitto.conf for `profile` into the state dir and return its path.
 
@@ -86,9 +87,16 @@ def render_config(
     listener_set = listeners(profile, debug_port)
     # per_listener_settings is needed only when listeners disagree on a global
     # security setting (ACL on the real listeners vs none on the debug tap).
+    # The plaintext ACL listener (the anonymous read window) refuses any client that
+    # presents a username: with no password backend, a claimed username would
+    # otherwise match the ACL's per-username grants. An empty password file does it.
+    anon_window = any(listener_.acl and not listener_.tls for listener_ in listener_set)
     per_listener = acl_plugin is None and (
-        any(listener_.acl for listener_ in listener_set)
-        and any(not listener_.acl for listener_ in listener_set)
+        anon_window
+        or (
+            any(listener_.acl for listener_ in listener_set)
+            and any(not listener_.acl for listener_ in listener_set)
+        )
     )
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),
@@ -104,6 +112,8 @@ def render_config(
         state_dir=state_dir,
         acl_file=acl_file,
         acl_plugin=acl_plugin if acl_file is not None else None,
+        password_plugin=password_plugin_for(acl_plugin) if acl_file is not None else None,
+        no_users_file=no_users_file if anon_window else None,
         per_listener=per_listener,
         bridge=bridge,
     )
@@ -147,9 +157,17 @@ def acl_plugin_for(mosquitto: str | None) -> Path | None:
         prefix / "lib" / "mosquitto" / "mosquitto_acl_file.so",
         *sorted(prefix.glob("lib/*/mosquitto/mosquitto_acl_file.so")),
     ):
-        if candidate.exists():
+        if candidate.exists() and password_plugin_for(candidate):
             return candidate
     return None
+
+
+def password_plugin_for(acl_plugin: Path | None) -> Path | None:
+    """The mosquitto_password_file plugin installed beside `acl_plugin`."""
+    if acl_plugin is None:
+        return None
+    candidate = acl_plugin.with_name("mosquitto_password_file.so")
+    return candidate if candidate.exists() else None
 
 
 def prepare(
@@ -178,9 +196,14 @@ def prepare(
         ensure_server_cert(paths, hostname)
     if any(listener_.acl for listener_ in listener_set):
         acl_file = ensure_acl(state_dir / "acl", load_registry(state_dir))
+    no_users_file = None
+    if any(listener_.acl and not listener_.tls for listener_ in listener_set):
+        no_users_file = ensure_no_users(state_dir / "no-users")
 
     acl_plugin = acl_plugin_for(mosquitto or resolve_mosquitto())
-    conf_path = render_config(state_dir, paths, profile, debug_port, acl_file, bridge, acl_plugin)
+    conf_path = render_config(
+        state_dir, paths, profile, debug_port, acl_file, bridge, acl_plugin, no_users_file
+    )
     return conf_path, hostname
 
 

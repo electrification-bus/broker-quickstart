@@ -31,7 +31,7 @@ pattern readwrite ebus/5/%u/#
 ```
 
 - Read is unrestricted: every client, anonymous or authenticated, may read the whole tree. On `discovery` that includes the anonymous plaintext window, so a certless LAN client reads all device data, not just lifecycle. Use `strict` (no anonymous listener) if reads must be closed.
-- Write stays narrow: an **authenticated** client (cert CN = username) owns `ebus/5/<cn>/#`, its own subtree, through the `%u` grant. An **anonymous** client has no username, so it matches no write grant and cannot publish. Grants beyond its own subtree come from the client registry (below).
+- Write stays narrow: an **authenticated** client (cert CN = username) owns `ebus/5/<cn>/#`, its own subtree, through the `%u` grant. An **anonymous** client has no username, so it matches no write grant and cannot publish. The plaintext window refuses a client that presents a username (an empty password file), so a certless client cannot claim another client's grants by naming itself after it. Grants beyond its own subtree come from the client registry (below).
 
 ### Per-client grants: roles and child devices
 
