@@ -96,7 +96,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    conf_path, hostname = prepare(args.state_dir, args.hostname, args.profile, args.debug_port, bridge)
+    conf_path, hostname = prepare(
+        args.state_dir, args.hostname, args.profile, args.debug_port, bridge, mosquitto
+    )
     device_id = args.device_id or default_device_id(hostname)
 
     stop = threading.Event()

@@ -21,6 +21,7 @@ though a `pattern` without `%u`/`%c` makes Mosquitto log a startup warning.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 DEFAULT_ACL = """\
@@ -53,4 +54,7 @@ def ensure_acl(acl_path: Path) -> Path:
     acl_path.parent.mkdir(parents=True, exist_ok=True)
     acl_path.write_text(DEFAULT_ACL)
     acl_path.chmod(0o600)
+    # A new file takes its directory's group (wheel under /tmp on macOS);
+    # Mosquitto 2.1 warns, and later versions refuse, unless it is our own group.
+    os.chown(acl_path, -1, os.getgid())
     return acl_path
