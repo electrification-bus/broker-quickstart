@@ -1,10 +1,8 @@
 """
 Single source of truth for eBus mDNS conventions used by broker-quickstart.
 
-These constants are consumed by:
-- the FastAPI register service (mDNS advertisement, /config response)
-- the Pi Ansible role `mdns` (templates mdns-publisher's input)
-- the Docker compose (env vars for the broker + register containers)
+These constants are consumed by the laptop broker's security profiles
+(laptop/profiles.py), and are meant for the planned Pi and Docker paths too.
 
 The eBus framework spec is authoritative. These values track framework.md
 §"MQTT Broker Advertisement"; if the spec changes, change them here. Do not

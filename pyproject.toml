@@ -3,19 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ebus-broker-register"
+name = "ebus-broker-quickstart"
 version = "0.0.1"
-description = "Per-device registration + CA distribution service for the eBus broker quickstart"
+description = "eBus MQTT broker quickstart: host-native Mosquitto with mDNS discovery and mTLS"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Electrification Bus contributors" }]
 
 dependencies = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.27",
     "jinja2>=3.1",
-    "tomli>=2.0 ; python_version < '3.11'",
     "cryptography>=42.0",
     "paho-mqtt>=2.0",
 ]
@@ -29,25 +26,21 @@ laptop = [
 ]
 dev = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "httpx>=0.27",
     "ruff>=0.4",
 ]
 
 [project.scripts]
-ebus-broker-register = "register.app:main"
 ebus-laptop = "laptop.run:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["register", "mdns", "laptop"]
+packages = ["mdns", "laptop"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
 [tool.pytest.ini_options]
-testpaths = ["laptop/tests", "register/tests"]
-asyncio_mode = "auto"
+testpaths = ["laptop/tests"]
 # `live` tests start a real Mosquitto broker (system binary, not a Python
 # dependency), so they are opt-in: `pytest -m live`.
 markers = ["live: requires a running Mosquitto broker binary"]
