@@ -1,38 +1,30 @@
 """
-Advertise the laptop broker over mDNS host-native on macOS (BQ-a6r).
+Advertise the laptop broker over mDNS host-native on macOS (BQ-a6r, BQ-q2y).
 
-On macOS, mDNSResponder/Bonjour owns mDNS and Avahi (the Pi path's backend)
-cannot run, so the laptop path uses python-zeroconf, which coexists with
-mDNSResponder. For the MVP this advertises `_secure-mqtt._tcp` on 8883 with the
-TXT records framework.md §"MQTT Broker Advertisement" requires:
+Advertising is ebus-service-discovery's `Advertiser`: one record per listener
+the profile advertises (`_secure-mqtt._tcp`, `_mqtt._tcp`) with the TXT records
+framework.md §"MQTT Broker Advertisement" requires, plus the `_ebus._tcp` and
+`_device-info._tcp` records every eBus entity advertises, with
+`roles=broker-host`. All share the instance name `eBus broker <device id>`.
 
-    txtvers=1, protocol=mqtt-v5, broker=<host>.local, device_id=<stable id>
-
-It rides the host's existing `<host>.local` (the SRV target points at the name
-Bonjour already publishes) rather than claiming a new `.local` A-record. The
-profile-aware service type (open vs discovery vs strict) is a later concern; this
-targets the mTLS advertisement the publisher needs to discover the broker.
+The SRV target is the host's own `<host>.local`, and no address records are
+published under it: mDNSResponder already answers for that name, with each
+interface's own address, so a LAN client and a container on the Mac each get
+an address they can reach. A `--hostname` other than the host's own is published
+with this host's addresses, since nothing else answers for it.
 
 The advertiser deregisters cleanly on Ctrl-C / SIGTERM so the one-command runner
-(BQ-x8v) can tear it down and the mDNS record disappears.
+(BQ-x8v) can tear it down and the mDNS records disappear.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import signal
 import sys
 import threading
-from collections.abc import Iterator
 
-from zeroconf import ServiceInfo, Zeroconf
-
-from mdns.constants import (
-    MQTT_PROTOCOL_V5,
-    SECURE_MQTT_SERVICE_TYPE,
-    TXTVERS,
-)
+from ebus_service_discovery import ebus, mdns
 
 from .certs import default_local_hostname, local_ip_addresses
 from .profiles import DEFAULT_PROFILE, PROFILES, advertised_listeners
@@ -44,70 +36,48 @@ def default_device_id(hostname: str | None = None) -> str:
     return hostname[: -len(".local")] if hostname.endswith(".local") else hostname
 
 
-def build_service_info(
-    service_type: str,
-    port: int,
+def instance_name(device_id: str) -> str:
+    # Not the bare host label: on macOS that collides with the TXT record
+    # mDNSResponder publishes at `<host label>._device-info._tcp`.
+    return f"eBus broker {device_id}"
+
+
+def advertiser_config(
     hostname: str | None = None,
     device_id: str | None = None,
-) -> ServiceInfo:
-    """Build a ServiceInfo for one listener with framework.md-compliant TXT records.
-
-    `_secure-mqtt._tcp` carries txtvers/protocol/broker/device_id; plain
-    `_mqtt._tcp` carries only txtvers/protocol per the spec.
-    """
+    profile: str = DEFAULT_PROFILE,
+) -> tuple[ebus.Identity, dict]:
+    """The identity and `mdns.Advertiser` keyword arguments for the profile."""
     hostname = hostname or default_local_hostname()
     device_id = device_id or default_device_id(hostname)
-    fq_type = f"{service_type}.local."
-
-    if service_type == SECURE_MQTT_SERVICE_TYPE:
-        properties = {
-            "txtvers": TXTVERS,
-            "protocol": MQTT_PROTOCOL_V5,
-            "broker": hostname,
-            "device_id": device_id,
-        }
-        label = f"eBus broker {device_id}"
-    else:  # plain _mqtt._tcp
-        properties = {"txtvers": TXTVERS, "protocol": MQTT_PROTOCOL_V5}
-        label = f"eBus broker {device_id} (plaintext)"
-
-    return ServiceInfo(
-        type_=fq_type,
-        name=f"{label}.{fq_type}",
-        addresses=[ip.packed for ip in local_ip_addresses()],
-        port=port,
-        properties=properties,
-        # Ride the host's existing <host>.local rather than claim a new A-record.
-        server=f"{hostname}.",
+    identity = ebus.Identity(
+        device_ids=[device_id],
+        roles=[ebus.ROLE_BROKER_HOST],
+        manufacturer="Electrification Bus",
+        model="broker-quickstart laptop broker",
+        serial_number=device_id,
     )
+    brokers = [
+        ebus.BrokerService(listener_.service_type, port=listener_.port, broker=hostname)
+        for listener_ in advertised_listeners(profile)
+    ]
+    own_name = hostname == default_local_hostname()
+    return identity, {
+        "brokers": brokers,
+        "instance_name": instance_name(device_id),
+        "server": f"{hostname}.",
+        "addresses": None if own_name else [str(ip) for ip in local_ip_addresses()],
+    }
 
 
-@contextlib.contextmanager
 def advertise(
     hostname: str | None = None,
     device_id: str | None = None,
     profile: str = DEFAULT_PROFILE,
-) -> Iterator[list[ServiceInfo]]:
-    """Advertise every service the profile enables, for the duration of the context.
-
-    One mDNS record per advertised listener (e.g. discovery advertises both
-    `_secure-mqtt._tcp` and `_mqtt._tcp`).
-    """
-    hostname = hostname or default_local_hostname()
-    device_id = device_id or default_device_id(hostname)
-    infos = [
-        build_service_info(listener_.service_type, listener_.port, hostname, device_id)
-        for listener_ in advertised_listeners(profile)
-    ]
-    zc = Zeroconf()
-    for info in infos:
-        zc.register_service(info)
-    try:
-        yield infos
-    finally:
-        for info in infos:
-            zc.unregister_service(info)
-        zc.close()
+) -> mdns.Advertiser:
+    """An Advertiser, used as a context manager, for every service the profile enables."""
+    identity, kwargs = advertiser_config(hostname, device_id, profile)
+    return mdns.Advertiser(identity, **kwargs)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -133,16 +103,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     stop = threading.Event()
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, lambda *_: stop.set())
 
-    with advertise(args.hostname, args.device_id, args.profile) as infos:
-        for info in infos:
+    with advertise(args.hostname, args.device_id, args.profile) as advertiser:
+        for info in advertiser.infos:
             txt = {k.decode(): v.decode() for k, v in info.properties.items() if v is not None}
             print(f"Advertising {info.name}", file=sys.stderr)
-            print(f"  service: {info.type.rstrip('.')} on port {info.port}", file=sys.stderr)
-            print(f"  TXT:     {txt}", file=sys.stderr)
-        print(f"  server:  {infos[0].server.rstrip('.')}" if infos else "  (nothing to advertise)", file=sys.stderr)
+            print(f"  port {info.port}  TXT {txt}", file=sys.stderr)
+        print(f"  server:  {(advertiser.server or '').rstrip('.')}", file=sys.stderr)
         print("  Ctrl-C to stop (deregisters the records).", file=sys.stderr)
         stop.wait()
     print("Advertisement withdrawn.", file=sys.stderr)
