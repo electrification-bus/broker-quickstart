@@ -25,7 +25,9 @@
 #                pip install -e <broker-quickstart>[laptop] -e <python-sdk>[mdns]
 #              (default: python3)
 #   PROFILE    broker security profile: discovery | strict   (default: discovery)
-#   METER_ID   meter id / client-cert CN              (default: laptop-meter-001)
+#   METER_ID   meter id / client-cert CN; must equal the meter config's device id,
+#              since the broker ACL scopes writes to ebus/5/<CN>/#
+#              (default: METER_CFG's device-id, else info.serial-number)
 #   METER_CFG  meter config JSON  (default: $SDK_REPO/examples/utility-meter-cfg.example.json)
 #   STATE      broker-quickstart state dir            (default: <repo>/state/laptop)
 #   DEBUG_PORT loopback plaintext debug port          (default: 1884)
@@ -43,12 +45,17 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PY="${PY:-python3}"
 PROFILE="${PROFILE:-discovery}"
-METER_ID="${METER_ID:-laptop-meter-001}"
 STATE="${STATE:-$REPO_ROOT/state/laptop}"
 DEBUG_PORT="${DEBUG_PORT:-1884}"
 SESSION="${SESSION:-ebus-laptop-bench}"
 RUN_ARGS="${RUN_ARGS:-}"   # extra args appended to the laptop.run broker command
 BROKER_CFG_JSON="${TMPDIR:-/tmp}/${SESSION}-broker-cfg.json"
+
+# The bench runs on its own tmux server (socket "$SESSION"), started from this
+# shell. Processes under a tmux server that a launchd agent started do not get
+# answers to the meter's mDNS host-name lookup, so its advertising fails.
+# Attach by hand with: tmux -L "$SESSION" attach
+tmux() { command tmux -L "$SESSION" "$@"; }
 
 case "${1:-}" in
   stop|down|--stop|kill)
@@ -69,16 +76,18 @@ command -v mosquitto >/dev/null || { echo "mosquitto not found (brew install mos
 [ -x "$SDK_REPO/examples/utility-meter" ] || { echo "not found/executable: $SDK_REPO/examples/utility-meter" >&2; exit 1; }
 METER_CFG="${METER_CFG:-$SDK_REPO/examples/utility-meter-cfg.example.json}"
 [ -f "$METER_CFG" ] || { echo "meter config not found: $METER_CFG" >&2; exit 1; }
+# The meter publishes under its device id (the same lookup as utility-meter).
+METER_ID="${METER_ID:-$("$PY" -c 'import json,sys; c=json.load(open(sys.argv[1])); print(c.get("device-id") or c.get("info",{}).get("serial-number",""))' "$METER_CFG")}"
+[ -n "$METER_ID" ] || { echo "no device-id or info.serial-number in $METER_CFG; set METER_ID" >&2; exit 1; }
 
 # Mint the dev CA, server cert, and the meter's client cert (idempotent).
 ( cd "$REPO_ROOT" && "$PY" -m laptop.certs --state-dir "$STATE" --client "$METER_ID" )
 
-# The publisher's broker config: --discover fills in host/port from mDNS; this
-# only needs to supply the TLS material.
+# The publisher's broker config supplies only the TLS material. With no host,
+# --discover takes the first _secure-mqtt._tcp broker it finds; a configured host
+# would restrict discovery to a broker matching that name.
 cat > "$BROKER_CFG_JSON" <<EOF
 {
-  "host": "mdns-discovered",
-  "port": 0,
   "use_tls": true,
   "tls_insecure": false,
   "tls_ca_cert": "$STATE/ca/ca.crt",
@@ -111,7 +120,7 @@ echo "tmux session '$SESSION' ready (broker / meter / sub)."
 echo "Stop: ./scripts/laptop-bench.sh stop"
 
 if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
-  exec tmux -CC attach -t "$SESSION"
+  exec tmux -L "$SESSION" -CC attach -t "$SESSION"
 else
-  exec tmux attach -t "$SESSION"
+  exec tmux -L "$SESSION" attach -t "$SESSION"
 fi

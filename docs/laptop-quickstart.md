@@ -77,7 +77,7 @@ This is the end-to-end proof. It discovers the broker via mDNS (it does not hard
     published + read back 'ebus/5/laptop-loop/$state'='ready': True
 ```
 
-`verify_loop` is a self-contained validation stand-in for a real eBus publisher. The production utility-meter simulator lives in [`python-sdk/examples/utility-meter`](https://github.com/electrification-bus/python-sdk/tree/main/examples); its change to discover the broker over mDNS rather than a hardcoded host is tracked in the python-sdk repo, not here. See [`python-sdk/examples/simple-span-controller`](https://github.com/electrification-bus/python-sdk/tree/main/examples) for the same mDNS discovery pattern against a real broker.
+`verify_loop` is a self-contained validation stand-in for a real eBus publisher. The production utility-meter simulator lives in [`python-sdk/examples/utility-meter`](https://github.com/electrification-bus/python-sdk/tree/main/examples); the bench below runs it with mDNS discovery. See [`python-sdk/examples/simple-span-controller`](https://github.com/electrification-bus/python-sdk/tree/main/examples) for the same mDNS discovery pattern against a real broker.
 
 ## 4. Connect a GUI client (MQTT Explorer)
 
@@ -184,7 +184,7 @@ Then run the bench, pointing it at your python-sdk clone:
 SDK_REPO=/path/to/python-sdk ./scripts/laptop-bench.sh
 ```
 
-The `meter` window logs `reason=brokerDiscovered,host=<name>.local,port=8883` followed by `reason=utilityMeterReady`, and the `sub` window shows the device's Homie tree (`ebus/5/<meter-id>/$state`, `$description`, `info/*`, `meter/*`, …) appearing. The meter found the broker over mDNS and connected over mTLS, with no hardcoded host. Stop everything with:
+The `meter` window logs `reason=brokerDiscovered,host=<name>.local,port=8883` followed by `reason=advertising` (the meter's own `_ebus._tcp` advertisement) and `reason=utilityMeterReady`, and the `sub` window shows the device's Homie tree (`ebus/5/<meter-id>/$state`, `$description`, `info/*`, `meter/*`, …) appearing. The meter found the broker over mDNS and connected over mTLS, with no hardcoded host. Stop everything with:
 
 ```bash
 ./scripts/laptop-bench.sh stop
