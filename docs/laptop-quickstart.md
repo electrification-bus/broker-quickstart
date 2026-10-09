@@ -212,6 +212,7 @@ All of `state/` is gitignored; the keys never leave your machine.
 | `python -m laptop.advertiser` | advertiser only |
 | `python -m laptop.discover [--json]` | discover a broker via mDNS (host + port); the consumer-side mirror of the advertiser |
 | `python -m laptop.certs --client <id>` | mint the CA / server / a client cert |
+| `python -m laptop.clients set <id> --role controller` | grant a client `/set` on other devices, or `--child <id>` subtrees ([per-client grants](security-profiles.md#per-client-grants-roles-and-child-devices)) |
 | `python -m laptop.verify_handshake` | mTLS handshake self-test (connect by `<name>.local`) |
 | `python -m laptop.verify_advertiser` | mDNS self-discovery self-test |
 | `python -m laptop.verify_loop` | full discover then mTLS then publish loop |

@@ -25,6 +25,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from .auth import ensure_acl
 from .bridge import Bridge, add_bridge_arguments, bridge_from_args
 from .certs import CertPaths, default_local_hostname, ensure_server_cert
+from .clients import load_registry
 from .profiles import DEFAULT_PROFILE, PROFILES, listeners
 from .span import add_span_bridge_arguments, span_bridge_from_args
 
@@ -176,7 +177,7 @@ def prepare(
     if any(listener_.tls for listener_ in listener_set):
         ensure_server_cert(paths, hostname)
     if any(listener_.acl for listener_ in listener_set):
-        acl_file = ensure_acl(state_dir / "acl")
+        acl_file = ensure_acl(state_dir / "acl", load_registry(state_dir))
 
     acl_plugin = acl_plugin_for(mosquitto or resolve_mosquitto())
     conf_path = render_config(state_dir, paths, profile, debug_port, acl_file, bridge, acl_plugin)
